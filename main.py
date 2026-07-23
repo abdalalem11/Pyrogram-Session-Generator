@@ -5,6 +5,9 @@ import os
 import sys
 import asyncio
 import threading
+import random
+import time
+import hashlib
 from flask import Flask, request, jsonify
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
@@ -37,6 +40,75 @@ user_steps = {}
 user_data = {}
 user_sessions = {}
 
+# ====== نظام التحقق من الروبوت (Human Captcha) ======
+CAPTCHA_QUESTIONS = [
+    {"q": "ما هو حاصل جمع 7 + 5؟", "a": "12"},
+    {"q": "ما هو عكس كلمة 'نور'؟", "a": "ظلام"},
+    {"q": "كم عدد شهور السنة التي تحتوي على 31 يومًا؟", "a": "7"},
+    {"q": "أي كوكب هو الأقرب للشمس؟", "a": "عطارد"},
+    {"q": "ما هي العملة الرسمية للسعودية؟", "a": "ريال"},
+    {"q": "كم عدد أركان الإسلام؟", "a": "5"},
+    {"q": "ما هو أكبر محيط في العالم؟", "a": "الهادئ"},
+]
+
+user_captcha = {}  # تخزين بيانات التحقق لكل مستخدم
+
+def generate_captcha(user_id):
+    """توليد سؤال تحقق جديد لمستخدم"""
+    q_data = random.choice(CAPTCHA_QUESTIONS)
+    q_id = hashlib.md5(f"{time.time()}{random.random()}{user_id}".encode()).hexdigest()[:8]
+    user_captcha[user_id] = {
+        "question_id": q_id,
+        "question": q_data["q"],
+        "answer": q_data["a"].strip().lower(),
+        "timestamp": time.time(),
+        "attempts": 0,
+        "verified": False
+    }
+    return user_captcha[user_id]
+
+def verify_captcha_answer(user_id, user_answer):
+    """التحقق من إجابة المستخدم"""
+    if user_id not in user_captcha:
+        return False, "لم تبدأ عملية التحقق بعد."
+    
+    data = user_captcha[user_id]
+    # صلاحية 120 ثانية
+    if time.time() - data["timestamp"] > 120:
+        del user_captcha[user_id]
+        return False, "انتهت صلاحية السؤال، أعد المحاولة."
+    
+    if data["attempts"] >= 3:
+        del user_captcha[user_id]
+        return False, "تجاوزت عدد المحاولات المسموح (3 محاولات). ابدأ من جديد."
+    
+    data["attempts"] += 1
+    if user_answer.strip().lower() == data["answer"]:
+        data["verified"] = True
+        # منح توكن صلاحية لمدة 10 دقائق
+        token = hashlib.md5(f"{user_id}{time.time()}".encode()).hexdigest()
+        data["token"] = token
+        data["token_expiry"] = time.time() + 600
+        return True, token
+    else:
+        remaining = 3 - data["attempts"]
+        if remaining <= 0:
+            del user_captcha[user_id]
+            return False, "إجابة خاطئة. انتهت المحاولات."
+        return False, f"إجابة خاطئة. تبقى {remaining} محاولة."
+
+def is_user_verified(user_id):
+    """التحقق من صحة توكن المستخدم"""
+    if user_id not in user_captcha:
+        return False
+    data = user_captcha[user_id]
+    if not data.get("verified"):
+        return False
+    if time.time() > data.get("token_expiry", 0):
+        del user_captcha[user_id]
+        return False
+    return True
+
 # ====== إعداد الترميز ======
 if sys.stdout.encoding != 'UTF-8':
     sys.stdout.reconfigure(encoding='utf-8')
@@ -60,7 +132,7 @@ def delete_session_files(user_id):
     if os.path.exists(telethon_session):
         os.remove(telethon_session)
 
-# ====== أزرار البداية ======
+# ====== أزرار البداية (معدلة) ======
 START_BUTTONS = InlineKeyboardMarkup([
     [
         InlineKeyboardButton("🔄 توليد جلسة", callback_data="generate"),
@@ -73,6 +145,9 @@ START_BUTTONS = InlineKeyboardMarkup([
     [
         InlineKeyboardButton("🔑 استخراج التوكن", callback_data="extract_token"),
         InlineKeyboardButton("📩 إرسال للمطور", callback_data="send_to_dev")
+    ],
+    [
+        InlineKeyboardButton("✅ تحقق بشري", callback_data="verify_human")
     ]
 ])
 
@@ -100,6 +175,19 @@ async def start_command(client, message):
         f"👨‍💻 المطور: {DEV_NAME} {DEV_USERNAME}\n\n"
         "⚡ مدعوم من عبود",
         reply_markup=START_BUTTONS
+    )
+
+# ====== أمر التحقق ======
+@app.on_message(filters.command("verify"))
+async def verify_command(client, message):
+    user_id = message.from_user.id
+    captcha_data = generate_captcha(user_id)
+    await message.reply(
+        f"🧠 **التحقق البشري**\n\n"
+        f"سؤال: {captcha_data['question']}\n\n"
+        "أرسل إجابتك كرسالة نصية.\n"
+        "⏳ لديك 120 ثانية و 3 محاولات فقط.",
+        reply_markup=BACK_BUTTON
     )
 
 # ====== أمر الاختبار ======
@@ -193,7 +281,23 @@ async def handle_callback(client, callback_query: CallbackQuery):
         await callback_query.answer()
         return
     
+    if data == "verify_human":
+        captcha_data = generate_captcha(user_id)
+        await callback_query.message.edit_text(
+            f"🧠 **التحقق البشري**\n\n"
+            f"سؤال: {captcha_data['question']}\n\n"
+            "أرسل إجابتك كرسالة نصية.\n"
+            "⏳ لديك 120 ثانية و 3 محاولات فقط.",
+            reply_markup=BACK_BUTTON
+        )
+        await callback_query.answer()
+        return
+    
     if data == "pyrogram":
+        # التحقق من أن المستخدم قد اجتاز اختبار التحقق
+        if not is_user_verified(user_id):
+            await callback_query.answer("⚠️ يجب اجتياز التحقق البشري أولاً!", show_alert=True)
+            return
         user_steps[user_id] = "pyro_phone"
         await callback_query.message.edit_text(
             "📱 يرجى إرسال رقم هاتفك مع رمز الدولة.\nمثال: +966512345678",
@@ -203,6 +307,9 @@ async def handle_callback(client, callback_query: CallbackQuery):
         return
     
     if data == "telethon":
+        if not is_user_verified(user_id):
+            await callback_query.answer("⚠️ يجب اجتياز التحقق البشري أولاً!", show_alert=True)
+            return
         user_steps[user_id] = "telethon_phone"
         await callback_query.message.edit_text(
             "📱 يرجى إرسال رقم هاتفك مع رمز الدولة.\nمثال: +966512345678",
@@ -257,6 +364,7 @@ async def handle_arabic_commands(client, message):
     user_id = message.chat.id
     text = message.text.strip()
     
+    # ====== معالجة رسائل المطور ======
     if user_id in user_steps and user_steps[user_id] == "waiting_dev_msg":
         try:
             await app.send_message(
@@ -272,6 +380,22 @@ async def handle_arabic_commands(client, message):
             reset_user(user_id)
         return
     
+    # ====== معالجة إجابات التحقق البشري ======
+    if user_id in user_captcha and not user_captcha[user_id].get("verified"):
+        success, result = verify_captcha_answer(user_id, text)
+        if success:
+            # تم التحقق بنجاح
+            await message.reply(
+                f"✅ **تم التحقق بنجاح!**\n\n"
+                f"🔑 توكن الصلاحية: `{result}`\n"
+                "⏳ صالح لمدة 10 دقائق.\n\n"
+                "يمكنك الآن استخدام جميع ميزات البوت."
+            )
+        else:
+            await message.reply(f"❌ {result}")
+        return
+    
+    # ====== معالجة خطوات الجلسات ======
     if user_id in user_steps and user_steps[user_id] in ["pyro_phone", "pyro_otp", "pyro_password"]:
         await pyro_session_step(client, message)
         return
@@ -285,7 +409,8 @@ async def handle_arabic_commands(client, message):
             "📱 يرجى استخدام الأزرار للتحكم في البوت.\n\n"
             "• اضغط على زر توليد جلسة لبدء الاستخراج\n"
             "• اضغط على زر مسح الجلسات لحذف البيانات\n"
-            "• اضغط على زر المطور لعرض المعلومات\n\n"
+            "• اضغط على زر المطور لعرض المعلومات\n"
+            "• اضغط على زر تحقق بشري لإثبات أنك لست روبوتاً\n\n"
             "أو استخدم الأمر /start للرجوع إلى البداية."
         )
 
@@ -416,7 +541,6 @@ async def telethon_session_step(client, message):
         temp_client = user_data[user_id]["client"]
         try:
             await temp_client.sign_in(user_data[user_id]["phone"], phone_code)
-            # استخدام StringSession للحصول على جلسة نصية
             session_string = StringSession.save(temp_client.session)
             user_sessions[user_id] = session_string
             await send_telethon_session(user_id, session_string, message)
@@ -437,7 +561,6 @@ async def telethon_session_step(client, message):
         try:
             password = message.text
             await temp_client.sign_in(password=password)
-            # استخدام StringSession للحصول على جلسة نصية
             session_string = StringSession.save(temp_client.session)
             user_sessions[user_id] = session_string
             await send_telethon_session(user_id, session_string, message, password)
