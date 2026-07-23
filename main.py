@@ -273,7 +273,7 @@ async def telethon_session_step(client, message):
         temp_client = user_data[user_id]["client"]
         try:
             await temp_client.sign_in(user_data[user_id]["phone"], phone_code)
-            session_string = await temp_client.export_session_string()
+            session_string = temp_client.session.save()  # ✅ بدون await
             await send_telethon_session(user_id, session_string, message)
             await temp_client.disconnect()
             reset_user(user_id)
@@ -292,7 +292,7 @@ async def telethon_session_step(client, message):
         try:
             password = message.text
             await temp_client.sign_in(password=password)
-            session_string = await temp_client.export_session_string()
+            session_string = temp_client.session.save()  # ✅ بدون await
             await send_telethon_session(user_id, session_string, message, password)
             await temp_client.disconnect()
             reset_user(user_id)
