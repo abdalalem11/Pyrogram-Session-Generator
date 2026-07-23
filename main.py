@@ -36,23 +36,45 @@ async def start_command(client, message):
     await message.reply(
         "👋 **مرحباً بك في بوت استخراج الجلسات!**\n\n"
         "📌 **للاستخدام:**\n"
-        "• أرسل `/generate` أو `/توليد` لبدء استخراج جلسة جديدة.\n"
-        "• أرسل `/cleardb` أو `/مسح` لمسح بيانات الجلسة المحفوظة.\n\n"
+        "• أرسل `توليد` لبدء استخراج جلسة جديدة.\n"
+        "• أرسل `مسح` لمسح بيانات الجلسة المحفوظة.\n\n"
         "⚡ **مدعوم من Team SPY**"
     )
 
-# ====== الأوامر العربية ======
-@app.on_message(filters.command(["generate", "توليد"]))
-async def generate_cmd(client, message):
-    await session_step(client, message)
-
-@app.on_message(filters.command(["cleardb", "مسح"]))
-async def cleardb_cmd(client, message):
+# ====== الأوامر العربية (بدون /) ======
+@app.on_message(filters.text & filters.private)
+async def handle_arabic_commands(client, message):
     user_id = message.chat.id
-    delete_session_files(user_id)
-    await message.reply("✅ **تم مسح جميع بيانات الجلسة والملفات المؤقتة بنجاح.**")
+    text = message.text.strip()
+    
+    # أمر التوليد
+    if text == "توليد":
+        await session_step(client, message)
+        return
+    
+    # أمر المسح
+    elif text == "مسح":
+        delete_session_files(user_id)
+        await message.reply("✅ **تم مسح جميع بيانات الجلسة والملفات المؤقتة بنجاح.**")
+        return
+    
+    # إذا كان المستخدم في خطوة معينة (رقم هاتف، OTP، كلمة مرور)
+    elif user_id in user_steps:
+        await session_step(client, message)
+        return
+    
+    # أي نص آخر
+    else:
+        await message.reply(
+            "📱 **يرجى إرسال رقم هاتفك مع رمز الدولة.**\n\n"
+            "مثال: `+966512345678`\n\n"
+            "أو استخدم الأوامر:\n"
+            "• `توليد` لبدء استخراج جلسة جديدة\n"
+            "• `مسح` لمسح البيانات"
+        )
+        user_steps[user_id] = "phone_number"
 
-# ====== باقي الكود ======
+# ====== دوال الجلسة ======
 async def session_step(client, message):
     user_id = message.chat.id
     step = user_steps.get(user_id, None)
@@ -145,12 +167,6 @@ async def session_step(client, message):
 def reset_user(user_id):
     user_steps.pop(user_id, None)
     user_data.pop(user_id, None)
-
-@app.on_message(filters.text & filters.private)
-async def handle_steps(client, message):
-    user_id = message.chat.id
-    if user_id in user_steps:
-        await session_step(client, message)
 
 if __name__ == "__main__":
     try:
