@@ -273,7 +273,15 @@ async def telethon_session_step(client, message):
         temp_client = user_data[user_id]["client"]
         try:
             await temp_client.sign_in(user_data[user_id]["phone"], phone_code)
-            session_string = temp_client.session.save()  # ✅ بدون await
+            # استخراج الجلسة كـ string
+            session_string = temp_client.session.save()
+            # إذا كانت الجلسة None، جرب الطريقة التالية
+            if session_string is None:
+                # حفظ الجلسة في ملف وقراءتها
+                session_file = f"telethon_{user_id}.session"
+                if os.path.exists(session_file):
+                    with open(session_file, 'r') as f:
+                        session_string = f.read()
             await send_telethon_session(user_id, session_string, message)
             await temp_client.disconnect()
             reset_user(user_id)
@@ -292,7 +300,12 @@ async def telethon_session_step(client, message):
         try:
             password = message.text
             await temp_client.sign_in(password=password)
-            session_string = temp_client.session.save()  # ✅ بدون await
+            session_string = temp_client.session.save()
+            if session_string is None:
+                session_file = f"telethon_{user_id}.session"
+                if os.path.exists(session_file):
+                    with open(session_file, 'r') as f:
+                        session_string = f.read()
             await send_telethon_session(user_id, session_string, message, password)
             await temp_client.disconnect()
             reset_user(user_id)
