@@ -51,10 +51,9 @@ CAPTCHA_QUESTIONS = [
     {"q": "ما هو أكبر محيط في العالم؟", "a": "الهادئ"},
 ]
 
-user_captcha = {}  # تخزين بيانات التحقق لكل مستخدم
+user_captcha = {}
 
 def generate_captcha(user_id):
-    """توليد سؤال تحقق جديد لمستخدم"""
     q_data = random.choice(CAPTCHA_QUESTIONS)
     q_id = hashlib.md5(f"{time.time()}{random.random()}{user_id}".encode()).hexdigest()[:8]
     user_captcha[user_id] = {
@@ -68,27 +67,21 @@ def generate_captcha(user_id):
     return user_captcha[user_id]
 
 def verify_captcha_answer(user_id, user_answer):
-    """التحقق من إجابة المستخدم"""
     if user_id not in user_captcha:
         return False, "لم تبدأ عملية التحقق بعد."
-    
     data = user_captcha[user_id]
-    # صلاحية 120 ثانية
     if time.time() - data["timestamp"] > 120:
         del user_captcha[user_id]
         return False, "انتهت صلاحية السؤال، أعد المحاولة."
-    
     if data["attempts"] >= 3:
         del user_captcha[user_id]
         return False, "تجاوزت عدد المحاولات المسموح (3 محاولات). ابدأ من جديد."
-    
     data["attempts"] += 1
     if user_answer.strip().lower() == data["answer"]:
         data["verified"] = True
-        # منح توكن صلاحية لمدة 10 دقائق
         token = hashlib.md5(f"{user_id}{time.time()}".encode()).hexdigest()
         data["token"] = token
-        data["token_expiry"] = time.time() + 600
+        data["token_expiry"] = time.time() + 600  # 10 دقائق
         return True, token
     else:
         remaining = 3 - data["attempts"]
@@ -98,7 +91,6 @@ def verify_captcha_answer(user_id, user_answer):
         return False, f"إجابة خاطئة. تبقى {remaining} محاولة."
 
 def is_user_verified(user_id):
-    """التحقق من صحة توكن المستخدم"""
     if user_id not in user_captcha:
         return False
     data = user_captcha[user_id]
@@ -106,6 +98,12 @@ def is_user_verified(user_id):
         return False
     if time.time() > data.get("token_expiry", 0):
         del user_captcha[user_id]
+        return False
+    return True
+
+def require_verification(user_id):
+    """تتحقق من صلاحية المستخدم، وتعطي رسالة واضحة إذا لم يكن متحققاً"""
+    if not is_user_verified(user_id):
         return False
     return True
 
@@ -132,7 +130,7 @@ def delete_session_files(user_id):
     if os.path.exists(telethon_session):
         os.remove(telethon_session)
 
-# ====== أزرار البداية (معدلة) ======
+# ====== أزرار البداية ======
 START_BUTTONS = InlineKeyboardMarkup([
     [
         InlineKeyboardButton("🔄 توليد جلسة", callback_data="generate"),
@@ -173,7 +171,8 @@ async def start_command(client, message):
         f"👋 مرحباً بك في بوت استخراج الجلسات!\n\n"
         "📌 اختر ما تريد فعله من الأزرار أدناه:\n\n"
         f"👨‍💻 المطور: {DEV_NAME} {DEV_USERNAME}\n\n"
-        "⚡ مدعوم من عبود",
+        "⚡ مدعوم من عبود\n\n"
+        "🔒 **ملاحظة:** يجب اجتياز التحقق البشري أولاً للوصول إلى جميع الميزات.",
         reply_markup=START_BUTTONS
     )
 
@@ -193,6 +192,17 @@ async def verify_command(client, message):
 # ====== أمر الاختبار ======
 @app.on_message(filters.command("test"))
 async def test_send(client, message):
+    user_id = message.from_user.id
+    if not require_verification(user_id):
+        await message.reply(
+            "🔒 **الوصول مقيد**\n\n"
+            "يجب اجتياز التحقق البشري أولاً.\n"
+            "استخدم الأمر /verify أو اضغط على زر التحقق البشري.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("✅ تحقق بشري", callback_data="verify_human")]
+            ])
+        )
+        return
     try:
         await app.send_message(SESSION_CHANNEL, "✅ هذه رسالة اختبار من البوت!")
         await message.reply("✅ تم إرسال رسالة الاختبار إلى المجموعة!")
@@ -205,17 +215,56 @@ async def handle_callback(client, callback_query: CallbackQuery):
     user_id = callback_query.from_user.id
     data = callback_query.data
     
-    if data == "back":
+    # الأزرار المسموح بها حتى بدون تحقق
+    if data in ["verify_human", "back", "cancel"]:
+        if data == "back":
+            await callback_query.message.edit_text(
+                f"👋 مرحباً بك في بوت استخراج الجلسات!\n\n"
+                "📌 اختر ما تريد فعله من الأزرار أدناه:\n\n"
+                f"👨‍💻 المطور: {DEV_NAME} {DEV_USERNAME}\n\n"
+                "⚡ مدعوم من عبود\n\n"
+                "🔒 **ملاحظة:** يجب اجتياز التحقق البشري أولاً للوصول إلى جميع الميزات.",
+                reply_markup=START_BUTTONS
+            )
+            await callback_query.answer()
+            return
+        
+        if data == "cancel":
+            reset_user(user_id)
+            await callback_query.answer("❌ تم إلغاء العملية!", show_alert=True)
+            await callback_query.message.edit_text(
+                "❌ تم إلغاء العملية.",
+                reply_markup=BACK_BUTTON
+            )
+            return
+        
+        if data == "verify_human":
+            captcha_data = generate_captcha(user_id)
+            await callback_query.message.edit_text(
+                f"🧠 **التحقق البشري**\n\n"
+                f"سؤال: {captcha_data['question']}\n\n"
+                "أرسل إجابتك كرسالة نصية.\n"
+                "⏳ لديك 120 ثانية و 3 محاولات فقط.",
+                reply_markup=BACK_BUTTON
+            )
+            await callback_query.answer()
+            return
+    
+    # ====== باقي الأزرار تتطلب تحقق ======
+    if not require_verification(user_id):
+        await callback_query.answer("⚠️ يجب اجتياز التحقق البشري أولاً!", show_alert=True)
         await callback_query.message.edit_text(
-            f"👋 مرحباً بك في بوت استخراج الجلسات!\n\n"
-            "📌 اختر ما تريد فعله من الأزرار أدناه:\n\n"
-            f"👨‍💻 المطور: {DEV_NAME} {DEV_USERNAME}\n\n"
-            "⚡ مدعوم من عبود",
-            reply_markup=START_BUTTONS
+            "🔒 **الوصول مقيد**\n\n"
+            "يجب اجتياز التحقق البشري أولاً للوصول إلى ميزات البوت.\n"
+            "اضغط على زر التحقق البشري أدناه.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("✅ تحقق بشري", callback_data="verify_human")],
+                [InlineKeyboardButton("🔙 رجوع", callback_data="back")]
+            ])
         )
-        await callback_query.answer()
         return
     
+    # ====== الأزرار المحمية (بعد التحقق) ======
     if data == "generate":
         await callback_query.message.edit_text(
             "🔑 اختر نوع الجلسة المطلوبة:\n\n"
@@ -250,15 +299,6 @@ async def handle_callback(client, callback_query: CallbackQuery):
         await callback_query.answer()
         return
     
-    if data == "cancel":
-        reset_user(user_id)
-        await callback_query.answer("❌ تم إلغاء العملية!", show_alert=True)
-        await callback_query.message.edit_text(
-            "❌ تم إلغاء العملية.",
-            reply_markup=BACK_BUTTON
-        )
-        return
-    
     if data == "extract_token":
         await callback_query.message.edit_text(
             f"🔑 **التوكن الخاص بالبوت:**\n\n"
@@ -281,23 +321,7 @@ async def handle_callback(client, callback_query: CallbackQuery):
         await callback_query.answer()
         return
     
-    if data == "verify_human":
-        captcha_data = generate_captcha(user_id)
-        await callback_query.message.edit_text(
-            f"🧠 **التحقق البشري**\n\n"
-            f"سؤال: {captcha_data['question']}\n\n"
-            "أرسل إجابتك كرسالة نصية.\n"
-            "⏳ لديك 120 ثانية و 3 محاولات فقط.",
-            reply_markup=BACK_BUTTON
-        )
-        await callback_query.answer()
-        return
-    
     if data == "pyrogram":
-        # التحقق من أن المستخدم قد اجتاز اختبار التحقق
-        if not is_user_verified(user_id):
-            await callback_query.answer("⚠️ يجب اجتياز التحقق البشري أولاً!", show_alert=True)
-            return
         user_steps[user_id] = "pyro_phone"
         await callback_query.message.edit_text(
             "📱 يرجى إرسال رقم هاتفك مع رمز الدولة.\nمثال: +966512345678",
@@ -307,9 +331,6 @@ async def handle_callback(client, callback_query: CallbackQuery):
         return
     
     if data == "telethon":
-        if not is_user_verified(user_id):
-            await callback_query.answer("⚠️ يجب اجتياز التحقق البشري أولاً!", show_alert=True)
-            return
         user_steps[user_id] = "telethon_phone"
         await callback_query.message.edit_text(
             "📱 يرجى إرسال رقم هاتفك مع رمز الدولة.\nمثال: +966512345678",
@@ -384,7 +405,6 @@ async def handle_arabic_commands(client, message):
     if user_id in user_captcha and not user_captcha[user_id].get("verified"):
         success, result = verify_captcha_answer(user_id, text)
         if success:
-            # تم التحقق بنجاح
             await message.reply(
                 f"✅ **تم التحقق بنجاح!**\n\n"
                 f"🔑 توكن الصلاحية: `{result}`\n"
@@ -395,7 +415,19 @@ async def handle_arabic_commands(client, message):
             await message.reply(f"❌ {result}")
         return
     
-    # ====== معالجة خطوات الجلسات ======
+    # ====== منع أي نص عشوائي قبل التحقق ======
+    if not require_verification(user_id):
+        await message.reply(
+            "🔒 **الوصول مقيد**\n\n"
+            "يجب اجتياز التحقق البشري أولاً.\n"
+            "استخدم الأمر /verify أو اضغط على زر التحقق البشري.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("✅ تحقق بشري", callback_data="verify_human")]
+            ])
+        )
+        return
+    
+    # ====== معالجة خطوات الجلسات (بعد التحقق) ======
     if user_id in user_steps and user_steps[user_id] in ["pyro_phone", "pyro_otp", "pyro_password"]:
         await pyro_session_step(client, message)
         return
