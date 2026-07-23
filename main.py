@@ -30,7 +30,7 @@ from config import LOG_GROUP as SESSION_CHANNEL, API_ID, API_HASH, BOT_TOKEN
 # ====== معلومات المطور ======
 DEV_NAME = "عبود"
 DEV_USERNAME = "@u_t_r"
-CHANNEL_LINK = "https://t.me/devggn"
+CHANNEL_LINK = "https://t.me/u_t_rnn"
 
 user_steps = {}
 user_data = {}
