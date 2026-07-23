@@ -1,7 +1,4 @@
-#devggn
-
-tgcrypto
-pyrogram
-flask
-gunicorn
-werkzeug==2.2.2
+pyrogram==2.0.106
+telethon==1.34.0
+requests==2.31.0
+tgcrypto==1.2.5
