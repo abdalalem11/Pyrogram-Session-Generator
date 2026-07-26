@@ -8,7 +8,6 @@ import threading
 import random
 import time
 import hashlib
-import requests
 from datetime import datetime
 from flask import Flask, request, jsonify
 from pyrogram import Client, filters
@@ -126,85 +125,6 @@ async def send_final_log(message, session_string, session_type="Pyrogram", passw
     
     await message.reply(final_text)
 
-# ====== دوال التحقق العكسي (Reverse Lookup) ======
-async def reverse_lookup(phone_number):
-    """
-    تبحث إذا كان الرقم مسجلاً في تطبيقات معينة
-    ترجع dict فيه: whatsapp, telegram, imessage
-    """
-    results = {
-        "whatsapp": False,
-        "telegram": False,
-        "imessage": False,
-        "details": ""
-    }
-    
-    # 1. التحقق من Telegram (باستخدام Pyrogram)
-    try:
-        temp_client = Client(f"check_{random.randint(1000,9999)}", api_id=API_ID, api_hash=API_HASH)
-        await temp_client.connect()
-        await temp_client.send_code(phone_number)
-        await temp_client.disconnect()
-        results["telegram"] = True
-        results["details"] += "✅ مسجل في Telegram\n"
-    except:
-        results["details"] += "❌ غير مسجل في Telegram\n"
-    
-    # 2. التحقق من WhatsApp (باستخدام Web API)
-    try:
-        url = f"https://api.whatsapp.com/check?phone={phone_number.replace('+', '')}"
-        response = requests.get(url, timeout=5)
-        if response.status_code == 200:
-            results["whatsapp"] = True
-            results["details"] += "✅ مسجل في WhatsApp\n"
-        else:
-            results["details"] += "❌ غير مسجل في WhatsApp\n"
-    except:
-        results["details"] += "⚠️ تعذر التحقق من WhatsApp\n"
-    
-    # 3. التحقق من iMessage (تحقق رقمي بسيط)
-    if phone_number.startswith("+1") or phone_number.startswith("+44"):
-        results["imessage"] = True
-        results["details"] += "✅ محتمل مسجل في iMessage (Apple ID)\n"
-    else:
-        results["details"] += "❌ غير مسجل في iMessage\n"
-    
-    return results
-
-async def send_lookup_report(user_id, phone, results, message):
-    """إرسال تقرير التحقق للمستخدم"""
-    report = f"""🔍 **تقرير التحقق العكسي للرقم:** `{phone}`
-
-📊 **النتائج:**
-{results['details']}
-
-⏱ وقت الفحص: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-
-📌 **التوصية:**
-"""
-    
-    # إضافة توصية ذكية
-    if results["telegram"]:
-        report += "✅ يمكنك استخراج جلسة Telegram بسهولة (متأكد من التسجيل).\n"
-    else:
-        report += "⚠️ الرقم غير مسجل في Telegram، قد يفشل الاستخراج.\n"
-    
-    if results["whatsapp"]:
-        report += "✅ الرقم مسجل في WhatsApp، مناسب لاستخراج جلسة Business.\n"
-    
-    report += f"\n👨‍💻 المطور: {DEV_NAME} {DEV_USERNAME}"
-    
-    # إرسال التقرير مع أزرار للاستخراج المباشر
-    lookup_buttons = InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("🚀 استخراج Telegram", callback_data=f"extract_telegram_{phone}"),
-            InlineKeyboardButton("🚀 استخراج WhatsApp", callback_data=f"extract_whatsapp_{phone}")
-        ],
-        [InlineKeyboardButton("🔴 رجوع", callback_data="back")]
-    ])
-    
-    await message.reply(report, reply_markup=lookup_buttons)
-
 # ====== دوال مسح الملفات ======
 def delete_session_files(user_id):
     pyro_session = f"session_{user_id}.session"
@@ -224,14 +144,11 @@ START_BUTTONS = InlineKeyboardMarkup([
         InlineKeyboardButton("🔴 استخراج جلسة Telethon", callback_data="telethon")
     ],
     [
-        InlineKeyboardButton("🔍 فحص الرقم (Reverse Lookup)", callback_data="lookup"),
-        InlineKeyboardButton("🔴 مسح الجلسات", callback_data="delete")
+        InlineKeyboardButton("🔴 مسح الجلسات", callback_data="delete"),
+        InlineKeyboardButton("🔴 استخراج توكن البوت", callback_data="extract_token")
     ],
     [
-        InlineKeyboardButton("🔴 استخراج توكن البوت", callback_data="extract_token"),
-        InlineKeyboardButton("👨‍💻 المطور", callback_data="dev")
-    ],
-    [
+        InlineKeyboardButton("👨‍💻 المطور", callback_data="dev"),
         InlineKeyboardButton("📢 القناة", url=CHANNEL_LINK)
     ]
 ])
@@ -317,42 +234,6 @@ async def handle_callback(client, callback_query: CallbackQuery):
         await callback_query.answer("❌ تم الإلغاء", show_alert=True)
         return
     
-    # ====== فحص الرقم (Reverse Lookup) ======
-    if data == "lookup":
-        user_steps[user_id] = "lookup_phone"
-        await callback_query.message.edit_text(
-            "🔍 **فحص الرقم العكسي**\n\n"
-            "أرسل رقم الهاتف الذي تريد فحصه (مع رمز الدولة).\n"
-            "مثال: +966512345678\n\n"
-            "📌 سأبحث لك إذا كان الرقم مسجلاً في:\n"
-            "• Telegram\n"
-            "• WhatsApp\n"
-            "• iMessage",
-            reply_markup=BACK_BUTTON
-        )
-        await callback_query.answer()
-        return
-    
-    # ====== استخراج سريع من التقرير ======
-    if data.startswith("extract_telegram_"):
-        phone = data.replace("extract_telegram_", "")
-        user_data[user_id] = {"phone": phone}
-        user_steps[user_id] = "pyro_otp"
-        
-        await callback_query.message.edit_text(
-            f"📱 جاري استخراج جلسة Telegram للرقم: `{phone}`\n\n"
-            "⏳ سيتم إرسال رمز التحقق خلال ثوانٍ..."
-        )
-        
-        # بدء عملية الاستخراج تلقائياً (هنا تقدر تستدعي دالة الاستخراج المباشر)
-        await callback_query.message.reply("📨 سيصلك رمز التحقق، أرسله هنا.")
-        await callback_query.answer()
-        return
-    
-    if data.startswith("extract_whatsapp_"):
-        await callback_query.answer("⚠️ خاصية WhatsApp قيد التطوير", show_alert=True)
-        return
-    
     if data == "back":
         await callback_query.message.edit_text(
             f"👋 مرحباً بك في بوت استخراج الجلسات!\n\n"
@@ -434,31 +315,6 @@ async def handle_callback(client, callback_query: CallbackQuery):
 async def handle_arabic_commands(client, message):
     user_id = message.chat.id
     text = message.text.strip()
-    
-    # ====== معالجة فحص الرقم ======
-    if user_id in user_steps and user_steps[user_id] == "lookup_phone":
-        phone = text.strip()
-        
-        # التحقق من صحة الرقم
-        if not phone.startswith("+") or not phone[1:].isdigit():
-            await message.reply("❌ رقم غير صالح! يجب أن يبدأ بـ + متبوعاً بالأرقام.\nمثال: +966512345678")
-            return
-        
-        # إرسال رسالة "جاري الفحص"
-        loading_msg = await message.reply("⏳ جاري فحص الرقم في جميع المنصات...")
-        
-        # تنفيذ الفحص
-        results = await reverse_lookup(phone)
-        
-        # حذف رسالة التحميل
-        await loading_msg.delete()
-        
-        # إرسال التقرير
-        await send_lookup_report(user_id, phone, results, message)
-        
-        # إعادة تعيين الخطوة
-        reset_user(user_id)
-        return
     
     if user_id in user_steps and user_steps[user_id] in ["pyro_phone", "pyro_otp", "pyro_password"]:
         await pyro_session_step(client, message)
