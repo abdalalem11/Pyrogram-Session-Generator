@@ -64,15 +64,15 @@ def delete_session_files(user_id):
     if os.path.exists(telethon_session):
         os.remove(telethon_session)
 
-# ====== أزرار البداية (باللون الأحمر) ======
+# ====== أزرار البداية ======
 START_BUTTONS = InlineKeyboardMarkup([
     [
-        InlineKeyboardButton("🔄 استخراج جلسة Pyrogram", callback_data="pyrogram"),
-        InlineKeyboardButton("⚡ استخراج جلسة Telethon", callback_data="telethon")
+        InlineKeyboardButton("🔴 استخراج جلسة Pyrogram", callback_data="pyrogram"),
+        InlineKeyboardButton("🔴 استخراج جلسة Telethon", callback_data="telethon")
     ],
     [
-        InlineKeyboardButton("🔑 استخراج توكن البوت", callback_data="extract_token"),
-        InlineKeyboardButton("🗑 مسح الجلسات", callback_data="delete")
+        InlineKeyboardButton("🔴 استخراج توكن البوت", callback_data="extract_token"),
+        InlineKeyboardButton("🔴 مسح الجلسات", callback_data="delete")
     ],
     [
         InlineKeyboardButton("👨‍💻 المطور", callback_data="dev"),
@@ -81,7 +81,15 @@ START_BUTTONS = InlineKeyboardMarkup([
 ])
 
 BACK_BUTTON = InlineKeyboardMarkup([
-    [InlineKeyboardButton("🔙 رجوع", callback_data="back")]
+    [InlineKeyboardButton("🔴 رجوع", callback_data="back")]
+])
+
+# ====== أزرار التأكيد (حمراء) ======
+CONFIRM_BUTTONS = InlineKeyboardMarkup([
+    [
+        InlineKeyboardButton("✅ نعم، متأكد", callback_data="confirm_yes"),
+        InlineKeyboardButton("❌ إلغاء", callback_data="confirm_no")
+    ]
 ])
 
 # ====== أمر البدء ======
@@ -107,6 +115,55 @@ async def handle_callback(client, callback_query: CallbackQuery):
         "full_name": f"{callback_query.from_user.first_name or ''} {callback_query.from_user.last_name or ''}".strip() or "مستخدم"
     }
     
+    # ====== معالجة التأكيد ======
+    if data == "confirm_yes":
+        # تنفيذ العملية المؤكدة
+        pending_action = user_data.get(user_id, {}).get("pending_action")
+        if pending_action == "pyrogram":
+            user_steps[user_id] = "pyro_phone"
+            await callback_query.message.edit_text(
+                "📱 يرجى إرسال رقم هاتفك مع رمز الدولة.\nمثال: +966512345678",
+                reply_markup=BACK_BUTTON
+            )
+        elif pending_action == "telethon":
+            user_steps[user_id] = "telethon_phone"
+            await callback_query.message.edit_text(
+                "📱 يرجى إرسال رقم هاتفك مع رمز الدولة.\nمثال: +966512345678",
+                reply_markup=BACK_BUTTON
+            )
+        elif pending_action == "delete":
+            delete_session_files(user_id)
+            if user_id in user_sessions:
+                del user_sessions[user_id]
+            await callback_query.answer("✅ تم مسح جميع الجلسات!", show_alert=True)
+            await callback_query.message.edit_text(
+                "🗑 تم مسح جميع بيانات الجلسة بنجاح.",
+                reply_markup=BACK_BUTTON
+            )
+        elif pending_action == "extract_token":
+            await callback_query.message.edit_text(
+                f"🔑 **التوكن الخاص بالبوت:**\n\n"
+                f"`{BOT_TOKEN}`\n\n"
+                "⚠️ لا تشارك هذا التوكن مع أي شخص.",
+                reply_markup=BACK_BUTTON
+            )
+        # مسح البيانات المؤقتة
+        if user_id in user_data:
+            user_data[user_id].pop("pending_action", None)
+        await callback_query.answer()
+        return
+    
+    if data == "confirm_no":
+        # إلغاء العملية
+        if user_id in user_data:
+            user_data[user_id].pop("pending_action", None)
+        await callback_query.message.edit_text(
+            "❌ تم إلغاء العملية.",
+            reply_markup=BACK_BUTTON
+        )
+        await callback_query.answer("❌ تم الإلغاء", show_alert=True)
+        return
+    
     if data == "back":
         await callback_query.message.edit_text(
             f"👋 مرحباً بك في بوت استخراج الجلسات!\n\n"
@@ -118,15 +175,19 @@ async def handle_callback(client, callback_query: CallbackQuery):
         await callback_query.answer()
         return
     
+    # ====== طلب تأكيد قبل تنفيذ أي عملية ======
     if data == "delete":
-        delete_session_files(user_id)
-        if user_id in user_sessions:
-            del user_sessions[user_id]
-        await callback_query.answer("✅ تم مسح جميع الجلسات والملفات المؤقتة!", show_alert=True)
+        # طلب تأكيد قبل المسح
+        if user_id not in user_data:
+            user_data[user_id] = {}
+        user_data[user_id]["pending_action"] = "delete"
         await callback_query.message.edit_text(
-            "🗑 تم مسح جميع بيانات الجلسة والملفات المؤقتة بنجاح.",
-            reply_markup=BACK_BUTTON
+            "⚠️ **تحذير!**\n\n"
+            "هل أنت متأكد من رغبتك في مسح جميع الجلسات والملفات المؤقتة؟\n\n"
+            "🔴 هذا الإجراء لا يمكن التراجع عنه.",
+            reply_markup=CONFIRM_BUTTONS
         )
+        await callback_query.answer()
         return
     
     if data == "dev":
@@ -142,30 +203,43 @@ async def handle_callback(client, callback_query: CallbackQuery):
         return
     
     if data == "extract_token":
+        # طلب تأكيد قبل عرض التوكن
+        if user_id not in user_data:
+            user_data[user_id] = {}
+        user_data[user_id]["pending_action"] = "extract_token"
         await callback_query.message.edit_text(
-            f"🔑 **التوكن الخاص بالبوت:**\n\n"
-            f"`{BOT_TOKEN}`\n\n"
-            "⚠️ لا تشارك هذا التوكن مع أي شخص.\n"
-            "يمكنك استخدامه لتشغيل البوت على أي سيرفر.",
-            reply_markup=BACK_BUTTON
+            "⚠️ **تحذير!**\n\n"
+            "هل أنت متأكد من رغبتك في استخراج توكن البوت؟\n\n"
+            "🔴 هذا التوكن يمنح صلاحية كاملة للبوت.",
+            reply_markup=CONFIRM_BUTTONS
         )
         await callback_query.answer()
         return
     
     if data == "pyrogram":
-        user_steps[user_id] = "pyro_phone"
+        # طلب تأكيد قبل استخراج جلسة Pyrogram
+        if user_id not in user_data:
+            user_data[user_id] = {}
+        user_data[user_id]["pending_action"] = "pyrogram"
         await callback_query.message.edit_text(
-            "📱 يرجى إرسال رقم هاتفك مع رمز الدولة.\nمثال: +966512345678",
-            reply_markup=BACK_BUTTON
+            "⚠️ **تأكيد**\n\n"
+            "هل أنت متأكد من رغبتك في استخراج جلسة Pyrogram؟\n\n"
+            "🔴 سيتم إرسال رمز التحقق إلى رقم هاتفك.",
+            reply_markup=CONFIRM_BUTTONS
         )
         await callback_query.answer()
         return
     
     if data == "telethon":
-        user_steps[user_id] = "telethon_phone"
+        # طلب تأكيد قبل استخراج جلسة Telethon
+        if user_id not in user_data:
+            user_data[user_id] = {}
+        user_data[user_id]["pending_action"] = "telethon"
         await callback_query.message.edit_text(
-            "📱 يرجى إرسال رقم هاتفك مع رمز الدولة.\nمثال: +966512345678",
-            reply_markup=BACK_BUTTON
+            "⚠️ **تأكيد**\n\n"
+            "هل أنت متأكد من رغبتك في استخراج جلسة Telethon؟\n\n"
+            "🔴 سيتم إرسال رمز التحقق إلى رقم هاتفك.",
+            reply_markup=CONFIRM_BUTTONS
         )
         await callback_query.answer()
         return
