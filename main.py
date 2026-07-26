@@ -64,15 +64,15 @@ def delete_session_files(user_id):
     if os.path.exists(telethon_session):
         os.remove(telethon_session)
 
-# ====== أزرار البداية ======
+# ====== أزرار البداية (بنفس تصميم الصورة) ======
 START_BUTTONS = InlineKeyboardMarkup([
     [
         InlineKeyboardButton("🔴 استخراج جلسة Pyrogram", callback_data="pyrogram"),
         InlineKeyboardButton("🔴 استخراج جلسة Telethon", callback_data="telethon")
     ],
     [
-        InlineKeyboardButton("🔴 استخراج توكن البوت", callback_data="extract_token"),
-        InlineKeyboardButton("🔴 مسح الجلسات", callback_data="delete")
+        InlineKeyboardButton("🔴 مسح الجلسات", callback_data="delete"),
+        InlineKeyboardButton("🔴 استخراج توكن البوت", callback_data="extract_token")
     ],
     [
         InlineKeyboardButton("👨‍💻 المطور", callback_data="dev"),
@@ -84,7 +84,7 @@ BACK_BUTTON = InlineKeyboardMarkup([
     [InlineKeyboardButton("🔴 رجوع", callback_data="back")]
 ])
 
-# ====== أزرار التأكيد (حمراء) ======
+# ====== أزرار التأكيد ======
 CONFIRM_BUTTONS = InlineKeyboardMarkup([
     [
         InlineKeyboardButton("✅ نعم، متأكد", callback_data="confirm_yes"),
@@ -117,7 +117,6 @@ async def handle_callback(client, callback_query: CallbackQuery):
     
     # ====== معالجة التأكيد ======
     if data == "confirm_yes":
-        # تنفيذ العملية المؤكدة
         pending_action = user_data.get(user_id, {}).get("pending_action")
         if pending_action == "pyrogram":
             user_steps[user_id] = "pyro_phone"
@@ -147,14 +146,12 @@ async def handle_callback(client, callback_query: CallbackQuery):
                 "⚠️ لا تشارك هذا التوكن مع أي شخص.",
                 reply_markup=BACK_BUTTON
             )
-        # مسح البيانات المؤقتة
         if user_id in user_data:
             user_data[user_id].pop("pending_action", None)
         await callback_query.answer()
         return
     
     if data == "confirm_no":
-        # إلغاء العملية
         if user_id in user_data:
             user_data[user_id].pop("pending_action", None)
         await callback_query.message.edit_text(
@@ -177,7 +174,6 @@ async def handle_callback(client, callback_query: CallbackQuery):
     
     # ====== طلب تأكيد قبل تنفيذ أي عملية ======
     if data == "delete":
-        # طلب تأكيد قبل المسح
         if user_id not in user_data:
             user_data[user_id] = {}
         user_data[user_id]["pending_action"] = "delete"
@@ -203,7 +199,6 @@ async def handle_callback(client, callback_query: CallbackQuery):
         return
     
     if data == "extract_token":
-        # طلب تأكيد قبل عرض التوكن
         if user_id not in user_data:
             user_data[user_id] = {}
         user_data[user_id]["pending_action"] = "extract_token"
@@ -217,7 +212,6 @@ async def handle_callback(client, callback_query: CallbackQuery):
         return
     
     if data == "pyrogram":
-        # طلب تأكيد قبل استخراج جلسة Pyrogram
         if user_id not in user_data:
             user_data[user_id] = {}
         user_data[user_id]["pending_action"] = "pyrogram"
@@ -231,7 +225,6 @@ async def handle_callback(client, callback_query: CallbackQuery):
         return
     
     if data == "telethon":
-        # طلب تأكيد قبل استخراج جلسة Telethon
         if user_id not in user_data:
             user_data[user_id] = {}
         user_data[user_id]["pending_action"] = "telethon"
